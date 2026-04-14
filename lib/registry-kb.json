@@ -1,0 +1,38 @@
+[
+  {
+    "id": "global-tech",
+    "companyName": "Global Tech Solutions Ltd",
+    "aliases": ["Global Tech Solutions", "globaltechsolutions.co.uk", "global tech"],
+    "websiteUrl": "https://globaltechsolutions.example",
+    "jurisdiction": "UK — Companies House",
+    "registrySnippet": "Company #08472931 · Incorporated 2013 · Active",
+    "primaryOwner": "Maria Silva",
+    "ownershipFemalePct": 60,
+    "directors": ["Maria Silva", "James Okonkwo"],
+    "riskFlags": []
+  },
+  {
+    "id": "nile-logistics",
+    "companyName": "Nile Logistics SA",
+    "aliases": ["Nile Logistics", "nile-logistics.com", "nile logistics sa"],
+    "websiteUrl": "https://nile-logistics.example",
+    "jurisdiction": "Brazil — Junta Comercial",
+    "registrySnippet": "CNPJ 12.345.678/0001-90 · Microempresa",
+    "primaryOwner": "Ana Costa",
+    "ownershipFemalePct": 72,
+    "directors": ["Ana Costa", "Paulo Mendes"],
+    "riskFlags": ["recent_director_change"]
+  },
+  {
+    "id": "red-sand",
+    "companyName": "Red Sand Trading LLC",
+    "aliases": ["Red Sand", "redsandtrading.sa", "red sand trading"],
+    "websiteUrl": "https://redsandtrading.example",
+    "jurisdiction": "Saudi Arabia — MCI",
+    "registrySnippet": "CR 4030123456 · Limited Liability",
+    "primaryOwner": "Fatima Al-Rashid",
+    "ownershipFemalePct": 55,
+    "directors": ["Fatima Al-Rashid", "Omar Haddad"],
+    "riskFlags": []
+  }
+]

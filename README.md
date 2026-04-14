@@ -1,5 +1,51 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## WEC-Guardian POC
+
+Copy [`.env.example`](./.env.example) to `.env.local`.
+
+Required for LLM flow:
+- `GEMINI_API_KEY` (Google AI Studio)
+- `GEMINI_MODEL` (optional, defaults to `gemini-2.5-flash`)
+- `GEMINI_MODEL_FALLBACKS` (optional comma-separated fallback order, tried before demo fallback; if unset, built-in safe defaults are used)
+
+Recommended for robust company discovery:
+- `SERPAPI_API_KEY` (SerpApi key for Google engine)
+
+Optional for chain anchoring (Base Sepolia):
+- `CHAIN_MODE` (`demo`, `auto`, `real`)
+- `CHAIN_RPC_URL` (Base Sepolia RPC URL)
+- `CHAIN_PRIVATE_KEY` (0x-prefixed signer key; use funded testnet wallet only)
+- `CHAIN_ID` (defaults to `84532`)
+- `CHAIN_CONTRACT_ADDRESS` (optional; if set, anchoring uses contract call path)
+
+Discovery behavior:
+- Static KB lookup runs first.
+- If KB has no match, discovery uses SerpApi with `engine=google`.
+- If SerpApi key is missing, request fails, or quota is hit, it falls back to DuckDuckGo instant-answer search.
+- For top web candidates, the app fetches public page text and extracts structured hints (country, owner/founder, industry, employee/revenue signals) for richer prefill.
+- Discovery now applies deterministic candidate scoring and lets users pick among top matches when confidence is low.
+- ID video checks include confidence-aware gating; low confidence keeps the flow in retry mode.
+- Certificate verification page includes provenance summary (discovery provider + vision pass/fail).
+- Certificate provenance now includes anchoring mode (`real` or `demo`) and fallback reason in auto mode.
+- Terminal logs show provider and fallback reason (`GOOGLE_SERP`, `WEB_SEARCH_FALLBACK`).
+- Gemini calls now try model fallbacks (if configured) before entering demo mode.
+
+Chain anchoring behavior:
+- `CHAIN_MODE=demo`: always generate simulated tx hash (no RPC call).
+- `CHAIN_MODE=auto`: attempt Base Sepolia transaction and confirmation; if config/provider/send fails, fallback to simulated hash.
+- `CHAIN_MODE=real`: require Base Sepolia transaction success; failures bubble up as anchoring errors.
+- With `CHAIN_CONTRACT_ADDRESS` set, the app calls `anchorVerification(...)` on contract (contract-call path).
+- Without it, app anchors by sending signed digest in tx calldata (tx-data path).
+
+Admin ops:
+- `/admin` now includes a Demo Health panel (Gemini config, chain config validity, latest cert anchor mode/path).
+- `/admin` includes a "Run registry watcher tick" control to simulate scheduled registry deltas and auto-revoke eligible active certificates.
+
+Deploy to Vercel with the same variables. Use **Chrome** over **HTTPS** for camera + Web Speech API.
+
+Routes: `/` user flow, `/admin` terminal + revoke, `/demo` split-screen, `/verify/[certId]` public check.
+
 ## Getting Started
 
 First, run the development server:

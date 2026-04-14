@@ -1,0 +1,9 @@
+{
+  "name": "WEC-Guardian POC",
+  "short_name": "WEC",
+  "description": "Agentic verification concierge demonstration",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b"
+}
