@@ -251,7 +251,7 @@ async function generateWithRetry(
         typeof suggestedMs === "number"
           ? Math.max(1_200, Math.min(15_000, suggestedMs))
           : undefined;
-      const delayMs = boundedSuggestedMs ?? (reason === "quota" ? 2_500 * attempt : 700 * attempt);
+      const delayMs = boundedSuggestedMs ?? 700 * attempt;
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }

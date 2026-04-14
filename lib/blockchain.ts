@@ -124,7 +124,7 @@ function describeReceipt(receipt: MinimalReceipt): string {
 }
 
 async function ensureStableReceipt(
-  pub: ReturnType<typeof createPublicClient>,
+  pub: { getTransactionReceipt: (args: { hash: `0x${string}` }) => Promise<MinimalReceipt> },
   txHash: `0x${string}`,
   initialReceipt: MinimalReceipt,
 ): Promise<void> {
