@@ -345,6 +345,10 @@ export function validateRegistration(draft: RegistrationDraft, paid: boolean) {
   if (isBlank(draft.country)) missing.push("country");
   if (!draft.naics_codes.length) missing.push("naics_codes");
   if (!draft.unspsc_codes.length) missing.push("unspsc_codes");
+  const invalidNaics = draft.naics_codes.some((code) => !/^\d{2,6}$/.test(String(code).trim()));
+  if (invalidNaics) missing.push("naics_codes_invalid");
+  const invalidUnspsc = draft.unspsc_codes.some((code) => !/^\d{8}$/.test(String(code).trim()));
+  if (invalidUnspsc) missing.push("unspsc_codes_invalid");
   if (!draft.owner_details.length) missing.push("owner_details");
   if (draft.business_description.trim().length < 30) missing.push("business_description");
   if (isBlank(draft.cert_type)) missing.push("cert_type");

@@ -235,7 +235,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
-  const anchoredRef = useRef(false);
 
   const refreshSession = useCallback(async (sid: string) => {
     const r = await fetch(`/api/session?id=${sid}`);
@@ -449,8 +448,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   };
 
   const anchorCert = useCallback(async () => {
-    if (!sessionId || anchoredRef.current) return;
-    anchoredRef.current = true;
+    if (!sessionId) return;
     setAnchoring(true);
     setAnchorBlockers([]);
     setAnchorFailureReason("");
@@ -473,7 +471,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             : (data?.error ?? parsed.errorMessage ?? "Anchoring failed."),
         );
         setAnchorOperatorHint(data?.operatorHint ?? (data?.reasonDetail ? `Details: ${data.reasonDetail}` : ""));
-        anchoredRef.current = false;
         return;
       }
       const j = parsed.data;
@@ -487,11 +484,9 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         setStage("complete");
         await refreshSession(sessionId);
         speak("Verification complete. Your certificate is ready.");
-      } else {
-        anchoredRef.current = false;
       }
     } catch {
-      anchoredRef.current = false;
+      setAnchorFailureReason("Could not issue certificate. Please retry.");
     } finally {
       setAnchoring(false);
       setPendingTx(undefined);
@@ -537,7 +532,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     setVisionBlockers(j.blockers ?? []);
     if (j.visionNameMatchBypassed) {
       setVisionWarning(
-        "Name mismatch bypassed due to unverified owner prefill; manual review suggested.",
+        "Owner identity was not available from source; verification continued with warning.",
       );
     } else {
       setVisionWarning("");
@@ -556,12 +551,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       speak(prompt);
     }
   };
-
-  useEffect(() => {
-    if (stage === "anchoring" && !cert && sessionId) {
-      void anchorCert();
-    }
-  }, [stage, cert, sessionId, anchorCert]);
 
   const verifyUrl =
     typeof window !== "undefined" && cert
@@ -590,8 +579,95 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const mergedBlockers = Array.from(
     new Set([...readinessBlockers, ...countryConfirmationBlockers, ...anchorBlockers]),
   );
+  const readinessForIssue = mergedBlockers.length === 0;
   const mockCardValid =
     cardNumber.replace(/\s+/g, "").length >= 12 && cardExpiry.trim().length >= 4 && cardCvv.length >= 3;
+  const flowSteps = ["Discover", "Confirm", "Voice", "Vision", "Payment", "Certificate"] as const;
+  const currentFlowStep = (() => {
+    if (cert || stage === "complete") return 5;
+    if (stage === "anchoring" || (paid && !readinessForIssue)) return 4;
+    if (paid && readinessForIssue) return 5;
+    if (stage === "voice_attestation" || stage === "vision_id" || visionChecks.idPassed) return 3;
+    if (stage === "voice_confirm" || stage === "discovered") return 2;
+    if (match) return 1;
+    return 0;
+  })();
+  const paymentUnlocked =
+    stage === "voice_attestation" || stage === "anchoring" || stage === "complete" || Boolean(cert);
+  const nextAction = (() => {
+    if (!sessionId) {
+      return {
+        title: "Preparing your session…",
+        detail: "Please wait a moment.",
+      };
+    }
+    if (!match) {
+      return {
+        title: "Step 1: Enter business name and click Discover.",
+        detail: "Example: Arby's, StatusNeo, Nile Logistics.",
+      };
+    }
+    if (needsCandidateConfirmation) {
+      return {
+        title: "Step 2: Confirm the right company candidate.",
+        detail: "Pick the best match under Top web candidates and click Use selected candidate.",
+      };
+    }
+    if (!registration.country.trim()) {
+      return {
+        title: "Step 2: Enter country.",
+        detail: "Type country and confirm it before starting verification.",
+      };
+    }
+    if (countryRequiresConfirmation && !countryConfirmed) {
+      return {
+        title: "Step 2: Confirm country.",
+        detail: "Click Confirm country to continue.",
+      };
+    }
+    if (stage === "discovered" || stage === "voice_confirm") {
+      return {
+        title: "Step 3: Start voice verification.",
+        detail: "Click Start 60-second verification, then say yes.",
+      };
+    }
+    if (stage === "vision_id") {
+      return {
+        title: "Step 4: Complete ID video.",
+        detail: scanning
+          ? "Analyzing your clip… please wait."
+          : "Open camera and record a 2-second clip. Keep face and ID steady.",
+      };
+    }
+    if (stage === "voice_attestation") {
+      return {
+        title: "Step 5: Explain your role.",
+        detail: "Use Speak or Type box and describe your daily operational role.",
+      };
+    }
+    if (!paid) {
+      return {
+        title: "Step 6: Complete payment gate.",
+        detail: "Enter mock card details and mark payment as verified.",
+      };
+    }
+    if (!readinessForIssue) {
+      return {
+        title: "Almost done: clear blockers before issuing certificate.",
+        detail: `Pending: ${mergedBlockers.join(", ")}`,
+      };
+    }
+    if (stage === "anchoring") {
+      return {
+        title: "Finalizing certificate…",
+        detail: "Anchoring is in progress.",
+      };
+    }
+    return {
+      title: "Step 6: Issue certificate.",
+      detail: "Click Issue certificate to anchor and finish.",
+    };
+  })();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
@@ -623,6 +699,27 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             {fallbackReasonGuidance(quotaFallbackReason, quotaFallbackSubtype)}
           </p>
         )}
+        <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
+          <p className="text-sm font-semibold text-cyan-100">Guided Flow</p>
+          <p className="mt-1 text-sm text-cyan-50">{nextAction.title}</p>
+          <p className="mt-1 text-xs text-cyan-200/80">{nextAction.detail}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {flowSteps.map((step, index) => (
+              <span
+                key={step}
+                className={`rounded-full border px-2 py-1 text-[11px] ${
+                  index < currentFlowStep
+                    ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+                    : index === currentFlowStep
+                      ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                      : "border-white/10 bg-black/20 text-zinc-400"
+                }`}
+              >
+                {index + 1}. {step}
+              </span>
+            ))}
+          </div>
+        </section>
 
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <h2 className="text-lg font-semibold text-white">Proactive intake</h2>
@@ -930,31 +1027,39 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           <p className="mt-1 text-xs text-zinc-400">
             Demo payment required before complete registration can anchor.
           </p>
+          {!paymentUnlocked && (
+            <p className="mt-2 text-xs text-amber-300">
+              Payment unlocks after voice + vision steps are completed.
+            </p>
+          )}
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             <input
               className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
               placeholder="Card number"
               value={cardNumber}
               onChange={(e) => setCardNumber(e.target.value)}
+              disabled={!paymentUnlocked}
             />
             <input
               className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
               placeholder="MM/YY"
               value={cardExpiry}
               onChange={(e) => setCardExpiry(e.target.value)}
+              disabled={!paymentUnlocked}
             />
             <input
               className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
               placeholder="CVV"
               value={cardCvv}
               onChange={(e) => setCardCvv(e.target.value)}
+              disabled={!paymentUnlocked}
             />
           </div>
           <label className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
             <input
               type="checkbox"
               checked={paid}
-              disabled={!mockCardValid}
+              disabled={!paymentUnlocked || !mockCardValid}
               onChange={(e) => {
                 const nextPaid = e.target.checked;
                 setPaid(nextPaid);
@@ -971,6 +1076,24 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               Anchor blocked by server: {Array.from(new Set(anchorBlockers)).join(", ")}
             </p>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              if (!readinessForIssue) {
+                const pending = mergedBlockers.join(", ");
+                const message = `Cannot issue certificate yet. Pending: ${pending}`;
+                setAssistant(message);
+                speak(message);
+                return;
+              }
+              setStage("anchoring");
+              void anchorCert();
+            }}
+            disabled={anchoring || Boolean(cert)}
+            className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-40"
+          >
+            {anchoring ? "Issuing certificate…" : cert ? "Certificate issued" : "Issue certificate"}
+          </button>
         </section>
       </main>
 

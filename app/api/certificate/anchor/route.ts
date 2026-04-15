@@ -53,11 +53,17 @@ export async function POST(req: Request) {
   if (!session) {
     return NextResponse.json({ error: "session not found" }, { status: 404 });
   }
-  const company = session.companyId ? getCompanyById(session.companyId) : null;
+  // Keep server session stage aligned with explicit "Issue certificate" CTA flow.
+  setSessionStage(sessionId, "anchoring");
+  const anchoringSession = getSession(sessionId);
+  if (!anchoringSession) {
+    return NextResponse.json({ error: "session not found after stage update" }, { status: 404 });
+  }
+  const company = anchoringSession.companyId ? getCompanyById(anchoringSession.companyId) : null;
   if (!company) {
     return NextResponse.json({ error: "no company on session" }, { status: 400 });
   }
-  const readiness = verificationReadiness(session);
+  const readiness = verificationReadiness(anchoringSession);
   if (!readiness.isReady) {
     return NextResponse.json(
       { error: "verification not ready", blockers: readiness.blockers },
@@ -72,7 +78,7 @@ export async function POST(req: Request) {
     anchorResult = await submitAnchorTx({
       sessionId,
       companyName: company.companyName,
-      certType: session.registration?.cert_type,
+      certType: anchoringSession.registration?.cert_type,
       issuedAtIso: issuedAt,
     });
   } catch (error) {
@@ -128,15 +134,15 @@ export async function POST(req: Request) {
     primaryOwner: company.primaryOwner,
     ownershipFemalePct: company.ownershipFemalePct,
     issuedAt,
-    attestationSummary: session.attestation?.rationale,
-    manualReviewSuggested: session.attestation?.manualReview,
+    attestationSummary: anchoringSession.attestation?.rationale,
+    manualReviewSuggested: anchoringSession.attestation?.manualReview,
     provenanceSummary: {
-      certType: session.registration?.cert_type,
+      certType: anchoringSession.registration?.cert_type,
       paidAtIssuance: readiness.paid,
-      discoveryProvider: session.discoveryMeta?.provider,
-      selectedCandidateTitle: session.selectedCandidate?.title,
-      visionIdPassed: session.visionChecks?.idPassed,
-      ownershipEvidenceSource: session.discoveryMeta?.provider ? "prefill_web" : "prefill_registry",
+      discoveryProvider: anchoringSession.discoveryMeta?.provider,
+      selectedCandidateTitle: anchoringSession.selectedCandidate?.title,
+      visionIdPassed: anchoringSession.visionChecks?.idPassed,
+      ownershipEvidenceSource: anchoringSession.discoveryMeta?.provider ? "prefill_web" : "prefill_registry",
       ownershipVisionVerified: false,
       anchorMode: anchorResult.mode,
       anchorFallbackReason: anchorResult.reason,

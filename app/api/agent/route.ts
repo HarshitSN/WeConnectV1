@@ -124,6 +124,29 @@ function localTurnFallback(
   };
 }
 
+function shouldBlockAnchoringTransition(
+  nextStage: SessionStage | null | undefined,
+  missingRequired: string[],
+) {
+  return nextStage === "anchoring" && missingRequired.length > 0;
+}
+
+function readinessPrompt(missingRequired: string[]) {
+  if (missingRequired.includes("paid")) {
+    return "Verification is complete. Please complete payment to issue your certificate.";
+  }
+  if (missingRequired.includes("country")) {
+    return "Please complete country details before certificate issuance.";
+  }
+  if (missingRequired.includes("country_confirmation")) {
+    return "Please confirm the country field before certificate issuance.";
+  }
+  if (missingRequired.includes("naics_codes_invalid") || missingRequired.includes("unspsc_codes_invalid")) {
+    return "Please correct NAICS/UNSPSC code format before issuing certificate.";
+  }
+  return "Please complete remaining required fields before issuing certificate.";
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
@@ -225,24 +248,34 @@ export async function POST(req: Request) {
         nextStage: "anchoring" as SessionStage | null,
         manualReviewSuggested: false,
         controlAndManagementScore: 72,
+        uiHints: undefined,
         quotaFallback: true,
         fallbackReason: "network" as const,
         fallbackSubtype: undefined,
         fallbackMeta: undefined,
       }));
-      if (turn.nextStage && isStage(turn.nextStage)) {
-        setSessionStage(sessionId, turn.nextStage);
+      const blockedAnchoring = shouldBlockAnchoringTransition(turn.nextStage, validation.missingRequired);
+      const effectiveTurn = blockedAnchoring
+        ? {
+            ...turn,
+            nextStage: "voice_attestation" as SessionStage | null,
+            assistantText: readinessPrompt(validation.missingRequired),
+            uiHints: { ...(turn.uiHints ?? {}), badge: "READINESS REQUIRED" },
+          }
+        : turn;
+      if (effectiveTurn.nextStage && isStage(effectiveTurn.nextStage)) {
+        setSessionStage(sessionId, effectiveTurn.nextStage);
       }
-      pushMessage(sessionId, { role: "assistant", content: turn.assistantText });
-      const quotaFallback = Boolean(a.quotaFallback || turn.quotaFallback);
+      pushMessage(sessionId, { role: "assistant", content: effectiveTurn.assistantText });
+      const quotaFallback = Boolean(a.quotaFallback || effectiveTurn.quotaFallback);
       return NextResponse.json({
-        ...turn,
+        ...effectiveTurn,
         stage: getSession(sessionId)?.stage,
         attestation: a,
         quotaFallback,
-        fallbackReason: turn.fallbackReason ?? a.fallbackReason,
-        fallbackSubtype: turn.fallbackSubtype ?? a.fallbackSubtype,
-        fallbackMeta: turn.fallbackMeta ?? a.fallbackMeta,
+        fallbackReason: effectiveTurn.fallbackReason ?? a.fallbackReason,
+        fallbackSubtype: effectiveTurn.fallbackSubtype ?? a.fallbackSubtype,
+        fallbackMeta: effectiveTurn.fallbackMeta ?? a.fallbackMeta,
       });
     }
 
@@ -313,6 +346,10 @@ export async function POST(req: Request) {
       effectiveNextStage = "vision_id";
       effectiveAssistantText =
         "Thank you. Please hold your government ID steady in front of the camera. I will scan it now.";
+    }
+    if (shouldBlockAnchoringTransition(effectiveNextStage, validation.missingRequired)) {
+      effectiveNextStage = "voice_attestation";
+      effectiveAssistantText = readinessPrompt(validation.missingRequired);
     }
 
     if (effectiveNextStage && isStage(effectiveNextStage)) {
