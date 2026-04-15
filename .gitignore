@@ -32,6 +32,30 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# sensitive keys/certs
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+# local secrets/config dumps
+secrets.*
+credentials.*
+service-account*.json
+
+# local databases and dumps
+*.db
+*.sqlite
+*.sqlite3
+*.bak
 
 # vercel
 .vercel
