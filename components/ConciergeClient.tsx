@@ -730,16 +730,23 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       return;
     }
     if (activeCertType === "none") {
-      const message = "Please choose certification path first (Step 2).";
+      const message = "Please choose certification path first (Step 1).";
       setAssistant(message);
       speak(message);
       return;
     }
     if (isSelfPath) {
-      setStage("doc_upload");
       const message =
         "Self-Certified path selected. Please upload your business registration documents to continue.";
+      setStage("doc_upload");
       setAssistant(message);
+      if (sessionId) {
+        await fetch("/api/session", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, stage: "doc_upload" }),
+        });
+      }
       speak(message);
       return;
     }
@@ -996,13 +1003,13 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const mockCardValid =
     cardNumber.replace(/\s+/g, "").length >= 12 && cardExpiry.trim().length >= 4 && cardCvv.length >= 3;
   const flowSteps = isSelfPath
-    ? (["Intake", "Path", "Confirm", "Upload", "Compliance", "Trust Report", "Certificate"] as const)
-    : (["Intake", "Path", "Confirm", "Voice", "Upload", "Vision", "Payment", "Certificate"] as const);
+    ? (["Path", "Intake", "Confirm", "Upload", "Compliance", "Trust Report", "Certificate"] as const)
+    : (["Path", "Intake", "Confirm", "Voice", "Upload", "Vision", "Payment", "Certificate"] as const);
   const currentFlowStep = (() => {
     if (cert || stage === "complete") return flowSteps.length - 1;
     if (stage === "anchoring") return flowSteps.length - 1;
-    if (!match) return 0;
-    if (activeCertType === "none") return 1;
+    if (activeCertType === "none") return 0;
+    if (!match) return 1;
     if (
       needsCandidateConfirmation ||
       !registration.country.trim() ||
@@ -1036,16 +1043,16 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         detail: "Please wait a moment.",
       };
     }
-    if (!match) {
-      return {
-        title: "Step 1: Proactive intake.",
-        detail: "Enter business name or URL and click Discover.",
-      };
-    }
     if (activeCertType === "none") {
       return {
-        title: "Step 2: Choose certification path.",
+        title: "Step 1: Choose certification path.",
         detail: "Select Self-Certified or Digital Certification.",
+      };
+    }
+    if (!match) {
+      return {
+        title: "Step 2: Proactive intake.",
+        detail: "Enter business name or URL and click Discover.",
       };
     }
     if (needsCandidateConfirmation) {
@@ -1183,36 +1190,14 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             {fallbackReasonGuidance(quotaFallbackReason, quotaFallbackSubtype)}
           </p>
         )}
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h2 className="text-lg font-semibold text-white">Step 1: Proactive intake</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Enter a business name or URL. Try <strong className="text-zinc-200">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
-          </p>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <input
-              className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Business name or URL"
-            />
-            <button
-              type="button"
-              onClick={() => void runDiscover()}
-              disabled={!sessionId}
-              className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-40"
-            >
-              Discover
-            </button>
-          </div>
-        </section>
         <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
-          <p className="text-sm font-semibold text-cyan-100">Step 2: Choose certification path</p>
+          <p className="text-sm font-semibold text-cyan-100">Step 1: Choose certification path</p>
           <p className="mt-1 text-xs text-cyan-200/80">
             Current:{" "}
             {activeCertType === "digital"
-              ? "Digital Certification (Level 3)"
+              ? "Digital Certification"
               : activeCertType === "self"
-                ? "Self-Certified (Level 2)"
+                ? "Self-Certified"
                 : "Not selected"}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -1242,6 +1227,28 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             </button>
           </div>
         </section>
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="text-lg font-semibold text-white">Step 2: Proactive intake</h2>
+          <p className="mt-1 text-sm text-zinc-400">
+            Enter a business name or URL. Try <strong className="text-zinc-200">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
+          </p>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <input
+              className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Business name or URL"
+            />
+            <button
+              type="button"
+              onClick={() => void runDiscover()}
+              disabled={!sessionId}
+              className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-40"
+            >
+              Discover
+            </button>
+          </div>
+        </section>
         <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
           <p className="text-sm font-semibold text-cyan-100">Guided Flow</p>
           <p className="mt-3 text-sm text-cyan-50">{nextAction.title}</p>
@@ -1261,9 +1268,18 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               </span>
             ))}
           </div>
+          {match && activeCertType !== "none" && (stage === "discovered" || stage === "voice_confirm" || stage === "idle") && (
+            <button
+              type="button"
+              onClick={() => void startVerification()}
+              className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+            >
+              {isSelfPath ? "Continue Self-Certification" : "Start 60-second verification"}
+            </button>
+          )}
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <section className="hidden rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-white">Certification workspace</h2>
@@ -1446,11 +1462,15 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         </section>
 
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h2 className="text-lg font-semibold text-white">Intake details and prefill review</h2>
-          <p className="mt-1 text-xs text-zinc-500">
-            Proactive intake is at the top (Step 1). Use this section to review and refine discovered data.
-          </p>
-          <p className="mt-1 text-xs text-cyan-200/90">“We’ve pre-filled your business details. Please confirm.”</p>
+          {false && (
+            <>
+              <h2 className="text-lg font-semibold text-white">Intake details and prefill review</h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                Proactive intake is at the top (Step 2). Use this section to review and refine discovered data.
+              </p>
+              <p className="mt-1 text-xs text-cyan-200/90">“We’ve pre-filled your business details. Please confirm.”</p>
+            </>
+          )}
           {match && (
             <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-sm">
               <p className="font-medium text-emerald-200">{match.companyName}</p>
@@ -1494,13 +1514,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   ) : null}
                 </p>
               ) : null}
-              <button
-                type="button"
-                onClick={() => void startVerification()}
-                className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-              >
-                {isSelfPath ? "Continue Self-Certification" : "Start 60-second verification"}
-              </button>
               {needsCandidateConfirmation ? (
                 <p className="mt-2 text-xs text-amber-300">
                   Candidate confirmation required before verification can start.

@@ -42,3 +42,21 @@ export async function GET(req: Request) {
     updatedAt: s.updatedAt,
   });
 }
+
+export async function PATCH(req: Request) {
+  const body = await req.json();
+  const id = body.sessionId;
+  if (!id) {
+    return NextResponse.json({ error: "missing id" }, { status: 400 });
+  }
+  const s = getSession(id);
+  if (!s) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+  
+  if (body.stage) {
+    s.stage = body.stage;
+  }
+  
+  return NextResponse.json({ ok: true });
+}
