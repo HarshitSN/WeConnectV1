@@ -66,3 +66,27 @@ Return JSON only:
   "matchesPrimaryOwner": boolean (fuzzy match to "${company.primaryOwner}")
 }`;
 }
+
+export function buildCompanyExtractionPrompt(text: string): string {
+  return `Extract structured company data from the following search results or web text.
+Look for people names (not company names) in these roles:
+1. Founder / Co-founder names
+2. CEO / Owner names
+3. Director / Managing Director names
+4. Promoter names
+5. A brief industry/specialization hint
+
+Important: Only return actual human person names. Do NOT return company names, city names, or generic terms.
+If no person names are found, return an empty array.
+
+Text:
+"""
+${text}
+"""
+
+Return JSON only:
+{
+  "founderNames": string[],
+  "industryHint": string | null
+}`;
+}

@@ -3,6 +3,7 @@ import {
   buildAttestationInstruction,
   buildSystemInstruction,
   visionIdPrompt,
+  buildCompanyExtractionPrompt,
 } from "./prompts/wec-guardian";
 import type { RegistryCompany } from "./types";
 import type { SessionStage } from "./types";
@@ -661,5 +662,29 @@ export async function runAttestationAnalysis(
       fallbackSubtype: fallbackMeta.quotaSubtype,
       fallbackMeta,
     };
+  }
+}
+
+export async function extractCompanyDataFromSnippets(
+  text: string,
+): Promise<{ founderNames: string[]; industryHint: string | null }> {
+  if (!hasGeminiKey()) {
+    return { founderNames: [], industryHint: null };
+  }
+
+  const prompt = buildCompanyExtractionPrompt(text);
+  try {
+    const run = await generateWithModelFallback(prompt);
+    const cleaned = run.text.replace(/```json\n?|\n?```/g, "").trim();
+    const data = JSON.parse(cleaned) as {
+      founderNames?: string[];
+      industryHint?: string | null;
+    };
+    return {
+      founderNames: Array.isArray(data.founderNames) ? data.founderNames : [],
+      industryHint: data.industryHint || null,
+    };
+  } catch {
+    return { founderNames: [], industryHint: null };
   }
 }

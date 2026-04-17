@@ -1567,6 +1567,25 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   ) : null}
                 </label>
                 <label className="text-xs text-zinc-300">
+                  Primary owner
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    value={registration.owner_details[0]?.fullName || ""}
+                    onChange={(e) =>
+                      setRegistration((prev) => ({
+                        ...prev,
+                        owner_details: [
+                          {
+                            fullName: e.target.value,
+                            gender: prev.owner_details[0]?.gender || "Unknown",
+                            ownershipPct: prev.owner_details[0]?.ownershipPct ?? 100,
+                          },
+                        ],
+                      }))
+                    }
+                  />
+                </label>
+                <label className="text-xs text-zinc-300">
                   NAICS codes (comma separated)
                   <input
                     className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
@@ -1761,6 +1780,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             />
             <span className="text-xs text-zinc-500">Stage: {stage}</span>
           </div>
+          
+          {lines.length > 0 && (
+            <TerminalFeed lines={lines} className="mt-4" />
+          )}
 
           {stage === "doc_upload" && (
             <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-cyan-500/30 p-6">

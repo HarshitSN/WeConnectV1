@@ -1,4 +1,5 @@
 import { type WebCompanyCandidate, searchWebByQuery } from "./web-search";
+import { extractCompanyDataFromSnippets } from "./gemini";
 
 export type EnrichmentSummary = {
   legalName?: string;
@@ -174,6 +175,24 @@ function extractCompanyType(text: string): string | undefined {
 function extractFounderNames(text: string): string[] {
   const names = new Set<string>();
 
+  const STOP_WORDS = new Set([
+    "The", "This", "That", "India", "Company", "Services", "Private", "Limited",
+    "Pvt", "Ltd", "Inc", "Corp", "LLC", "LLP", "About", "Founded", "Based",
+    "Chennai", "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Kolkata", "Pune",
+    "New", "View", "More", "See", "Read", "Click", "Here", "Our", "Unknown",
+    "Global", "Group", "International", "Energy", "Solutions", "Technologies",
+  ]);
+  function isValidPersonName(name: string): boolean {
+    if (name.length < 3 || name.length > 60) return false;
+    if (!/^[A-Z]/i.test(name)) return false;
+    const words = name.split(/\s+/);
+    if (words.length < 2) return false; // need at least first + last
+    if (words.some((w) => STOP_WORDS.has(w))) return false;
+    if (/\d/.test(name)) return false;
+    if (/\b(?:pvt|ltd|inc|llc|llp|corp|company|services)\b/i.test(name)) return false;
+    return true;
+  }
+
   // Pattern: "Founded by Name1, Name2, and Name3" or "Founded by Name1 and Name2"
   const foundedByMatch = text.match(
     /(?:founded|co-founded|started)\s+by\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}(?:(?:\s*,\s*|\s+and\s+)[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})*)/i,
@@ -183,7 +202,7 @@ function extractFounderNames(text: string): string[] {
       .replace(/\s+and\s+/gi, ",")
       .split(",")
       .map((n) => n.trim())
-      .filter((n) => n.length >= 3 && /^[A-Z]/i.test(n));
+      .filter(isValidPersonName);
     for (const n of raw) names.add(n);
   }
 
@@ -197,19 +216,58 @@ function extractFounderNames(text: string): string[] {
       .replace(/\s+and\s+/gi, ",")
       .split(",")
       .map((n) => n.trim())
-      .filter((n) => n.length >= 3 && /^[A-Z]/i.test(n));
+      .filter(isValidPersonName);
     for (const n of raw) names.add(n);
   }
 
-  // Pattern: individual "Founder: Name" / "CEO & Founder: Name" etc.
+  // Pattern: "Name is the founder of"
+  const isFounderMatch = text.match(
+    /([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3})\s+(?:is|was)\s+(?:the|a)\s+(?:founder|co-founder|owner|director|managing\s+director)/i
+  );
+  if (isFounderMatch?.[1]) {
+    const name = isFounderMatch[1].trim();
+    if (isValidPersonName(name)) names.add(name);
+  }
+
+  // Pattern: individual "Founder: Name" / "CEO & Founder: Name" / "Director: Name" etc.
   const individualPatterns = [
-    /(?:founder\s*(?:&|and)\s*ceo|ceo\s*(?:&|and)\s*founder|founder|co-founder)\s*[:\-–]\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})/gi,
+    /(?:founder\s*(?:&|and)\s*ceo|ceo\s*(?:&|and)\s*founder|founder|co-founder|owner|managing\s+director|director)\s*[:\-–]\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})/gi,
   ];
   for (const pattern of individualPatterns) {
     for (const m of text.matchAll(pattern)) {
       const name = m[1]?.trim();
-      if (name && name.length >= 3) names.add(name);
+      if (name && isValidPersonName(name)) names.add(name);
     }
+  }
+
+  // Pattern: "Directors: Name1, Name2" or "Directors - Name1 | Name2"
+  const directorsLabelMatch = text.match(
+    /(?:directors?|key\s+people|management|promoters?)\s*[:\-–|]\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}(?:(?:\s*[,|&]\s*|\s+and\s+)[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})*)/i,
+  );
+  if (directorsLabelMatch?.[1]) {
+    const raw = directorsLabelMatch[1]
+      .replace(/\s*[|&]\s*/g, ",")
+      .replace(/\s+and\s+/gi, ",")
+      .split(",")
+      .map((n) => n.trim())
+      .filter(isValidPersonName);
+    for (const n of raw) names.add(n);
+  }
+
+  // Pattern: "Name - Director" / "Name - Managing Director" / "Name (Director)"
+  for (const m of text.matchAll(
+    /([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3})\s*[\-–(]\s*(?:Managing\s+)?Director/gi,
+  )) {
+    const name = m[1]?.trim();
+    if (name && isValidPersonName(name)) names.add(name);
+  }
+
+  // Pattern: "Name, Founder" / "Name, Director" / "Name, CEO"
+  for (const m of text.matchAll(
+    /([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3})\s*,\s*(?:Founder|Co-Founder|Director|Managing Director|CEO|Owner|Promoter)/gi,
+  )) {
+    const name = m[1]?.trim();
+    if (name && isValidPersonName(name)) names.add(name);
   }
 
   return [...names].slice(0, 5);
@@ -259,7 +317,7 @@ export async function enrichCompanyCandidate(
       }
     }
   }
-  const ownerName = firstMatch(original, [
+  let ownerName = firstMatch(original, [
     /(?:founder|ceo|owner|co-founder)\s*[:\-]\s*([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})/i,
     /(?:founded by)\s*([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})/i,
   ]);
@@ -282,23 +340,58 @@ export async function enrichCompanyCandidate(
 
   // Fallback SERP search for founder names if not found in the primary page text
   if (!founderNames.length && candidate.url.startsWith("http")) {
-    try {
-      const founderSearchResult = await searchWebByQuery(
-        `${candidate.title ?? ""} founders co-founders`,
-      );
-      const founderSnippets = founderSearchResult.candidates
-        .slice(0, 3)
-        .map((c) => `${c.title}. ${c.snippet}`)
-        .join(" ");
-      if (founderSnippets) {
-        founderNames = extractFounderNames(founderSnippets);
-        if (founderNames.length) {
-          evidence.push(`Founder names sourced from secondary SERP search.`);
+    const founderQueries = [
+      `"${candidate.title ?? ""}" founder director owner managing director`,
+      `${candidate.title ?? ""} directors key people promoters`,
+    ];
+    for (const fq of founderQueries) {
+      if (founderNames.length) break;
+      try {
+        const founderSearchResult = await searchWebByQuery(fq);
+        const founderSnippets = founderSearchResult.candidates
+          .slice(0, 5)
+          .map((c) => `${c.title}. ${c.snippet}`)
+          .join(" ");
+        if (founderSnippets) {
+          // Try regex first on snippets
+          founderNames = extractFounderNames(founderSnippets);
+          
+          // If regex still fails, use Gemini
+          if (!founderNames.length) {
+            const llmData = await extractCompanyDataFromSnippets(founderSnippets);
+            if (llmData.founderNames.length) {
+              founderNames = llmData.founderNames;
+              evidence.push(`Founder names sourced from secondary SERP search (via AI).`);
+              if (llmData.industryHint && !industryHint) {
+                evidence.push(`Industry hint refined via AI.`);
+              }
+            }
+          } else {
+            evidence.push(`Founder names sourced from secondary SERP search.`);
+          }
         }
+      } catch {
+        // Secondary founder search failed, continue with next query
+      }
+    }
+  }
+
+  // Final LLM sweep if still missing and we have enough text
+  if (!founderNames.length && original.length > 200) {
+    try {
+      const llmData = await extractCompanyDataFromSnippets(original.slice(0, 3000));
+      if (llmData.founderNames.length) {
+        founderNames = llmData.founderNames;
+        evidence.push(`Founder names detected via AI sweep.`);
       }
     } catch {
-      // Secondary founder search failed, continue without
+      // LLM sweep failed
     }
+  }
+
+  // Ensure ownerName (used for primary owner prefill) is synced with found names
+  if (!ownerName && founderNames.length) {
+    ownerName = founderNames[0];
   }
 
   if (legalName) evidence.push(`Legal name inferred from title: ${legalName}`);
