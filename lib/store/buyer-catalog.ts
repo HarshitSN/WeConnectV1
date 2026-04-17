@@ -17,7 +17,12 @@ export type CatalogSupplier = {
   clients_worked_with?: string;
 };
 
-const catalog = new Map<string, CatalogSupplier>();
+const globalCatalogStore = global as typeof global & {
+  catalog?: Map<string, CatalogSupplier>;
+};
+
+const catalog = globalCatalogStore.catalog || new Map<string, CatalogSupplier>();
+if (!globalCatalogStore.catalog) globalCatalogStore.catalog = catalog;
 
 for (const supplier of MOCK_SUPPLIERS) {
   catalog.set(supplier.id, {

@@ -35,7 +35,12 @@ export type DomainState = {
   governance: GovernanceState;
 };
 
-const domainState = new Map<string, DomainState>();
+const globalDomainStore = global as typeof global & {
+  domainState?: Map<string, DomainState>;
+};
+
+const domainState = globalDomainStore.domainState || new Map<string, DomainState>();
+if (!globalDomainStore.domainState) globalDomainStore.domainState = domainState;
 
 function createDefaultDomainState(): DomainState {
   return {

@@ -63,8 +63,16 @@ export type SessionRecord = {
   updatedAt: number;
 };
 
-const sessions = new Map<string, SessionRecord>();
-const certificates = new Map<string, CertificateRecord>();
+const globalStore = global as typeof global & {
+  sessions?: Map<string, SessionRecord>;
+  certificates?: Map<string, CertificateRecord>;
+};
+
+const sessions = globalStore.sessions || new Map<string, SessionRecord>();
+const certificates = globalStore.certificates || new Map<string, CertificateRecord>();
+
+if (!globalStore.sessions) globalStore.sessions = sessions;
+if (!globalStore.certificates) globalStore.certificates = certificates;
 
 function now() {
   return Date.now();

@@ -2,7 +2,12 @@ import kb from "./registry-kb.json";
 import type { RegistryCompany } from "./types";
 
 const companies = kb as RegistryCompany[];
-const dynamicCompanies = new Map<string, RegistryCompany>();
+const globalRegistryStore = global as typeof global & {
+  dynamicCompanies?: Map<string, RegistryCompany>;
+};
+
+const dynamicCompanies = globalRegistryStore.dynamicCompanies || new Map<string, RegistryCompany>();
+if (!globalRegistryStore.dynamicCompanies) globalRegistryStore.dynamicCompanies = dynamicCompanies;
 
 function normalize(s: string) {
   return s
