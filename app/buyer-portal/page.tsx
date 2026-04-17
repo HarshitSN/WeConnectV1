@@ -45,6 +45,12 @@ type ResultRow = {
   };
 };
 
+type CertificateListItem = {
+  id: string;
+  companyName: string;
+  revoked: boolean;
+};
+
 interface Filters {
   query: string;
   cert_type: CertType | "";
@@ -70,6 +76,8 @@ export default function BuyerPortalPage() {
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [recommendations, setRecommendations] = useState<ResultRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<"verify" | "rfp" | "audit" | null>(null);
+  const [actionMessage, setActionMessage] = useState<string>("");
 
   const set = (key: keyof Filters, val: unknown) => setFilters((f) => ({ ...f, [key]: val }));
 
@@ -107,6 +115,101 @@ export default function BuyerPortalPage() {
       ),
     [],
   );
+
+  const runVerifyCert = async () => {
+    if (!supplier) return;
+    setActionLoading("verify");
+    setActionMessage("");
+    try {
+      const res = await fetch("/api/certificate");
+      const json = (await res.json()) as { certificates?: CertificateListItem[] };
+      const byName = (json.certificates ?? []).find(
+        (cert) =>
+          !cert.revoked &&
+          cert.companyName.trim().toLowerCase() === supplier.supplier.business_name.trim().toLowerCase(),
+      );
+
+      if (byName) {
+        window.location.href = `/verify/${byName.id}`;
+        return;
+      }
+
+      setActionMessage(
+        supplier.supplier.cert_status === "active"
+          ? "No active certificate record found yet for this supplier. Please try again after issuance sync."
+          : "This supplier does not have an active certificate yet.",
+      );
+    } catch {
+      setActionMessage("Could not verify certificate right now. Please retry.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const runInviteRfp = async () => {
+    if (!supplier) return;
+    setActionLoading("rfp");
+    setActionMessage("");
+    try {
+      const res = await fetch("/api/buyer/rfp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplierId: supplier.supplier.id,
+          supplierName: supplier.supplier.business_name,
+          buyerQuery: filters.query,
+        }),
+      });
+      const json = (await res.json()) as { ok?: boolean; inviteId?: string; message?: string };
+      if (!res.ok || !json.ok) {
+        setActionMessage(json.message ?? "Failed to send RFP invite.");
+        return;
+      }
+      setActionMessage(`RFP invite sent successfully (${json.inviteId}).`);
+    } catch {
+      setActionMessage("Could not send RFP invite. Please retry.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const runAuditReport = async () => {
+    if (!supplier) return;
+    setActionLoading("audit");
+    setActionMessage("");
+    try {
+      const res = await fetch("/api/buyer/audit-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplier,
+          query: filters.query,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        fileName?: string;
+        content?: string;
+        message?: string;
+      };
+      if (!res.ok || !json.ok || !json.content || !json.fileName) {
+        setActionMessage(json.message ?? "Failed to generate audit report.");
+        return;
+      }
+      const blob = new Blob([json.content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = json.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      setActionMessage(`Audit report downloaded (${json.fileName}).`);
+    } catch {
+      setActionMessage("Could not generate audit report. Please retry.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50">
@@ -352,10 +455,38 @@ export default function BuyerPortalPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <button className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200"><CheckCircle size={14} />Verify Cert</button>
-                  <button className="inline-flex flex-1 items-center justify-center rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800 hover:text-zinc-50">Invite to RFP</button>
+                  <button
+                    type="button"
+                    onClick={() => void runVerifyCert()}
+                    disabled={actionLoading !== null}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <CheckCircle size={14} />
+                    {actionLoading === "verify" ? "Verifying..." : "Verify Cert"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runInviteRfp()}
+                    disabled={actionLoading !== null}
+                    className="inline-flex flex-1 items-center justify-center rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {actionLoading === "rfp" ? "Sending..." : "Invite to RFP"}
+                  </button>
                 </div>
-                <button className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800 hover:text-zinc-50"><Shield size={13} />Request Audit Report</button>
+                <button
+                  type="button"
+                  onClick={() => void runAuditReport()}
+                  disabled={actionLoading !== null}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800 hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Shield size={13} />
+                  {actionLoading === "audit" ? "Generating report..." : "Request Audit Report"}
+                </button>
+                {actionMessage ? (
+                  <p className="rounded-md border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+                    {actionMessage}
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
