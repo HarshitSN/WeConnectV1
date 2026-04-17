@@ -31,6 +31,8 @@ export type SessionRecord = {
     provider?: string;
     fallbackReason?: string;
     lowConfidence?: boolean;
+    ownershipSourceType?: "exact_exchange_filing" | "web_inferred" | "registry_prefill";
+    ownershipConfidence?: number;
   };
   visionChecks?: {
     idConfidence?: number;
@@ -148,6 +150,10 @@ export function setSessionRegistration(sessionId: string, registration: Registra
   if (!s) return;
   s.registration = registration;
   touchSession(s);
+}
+
+export function getSessionRegistration(sessionId: string): RegistrationDraft | undefined {
+  return sessions.get(sessionId)?.registration;
 }
 
 export function setSessionPaid(sessionId: string, paid: boolean) {

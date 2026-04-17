@@ -9,8 +9,11 @@ Required for LLM flow:
 - `GEMINI_MODEL` (optional, defaults to `gemini-2.5-flash`)
 - `GEMINI_MODEL_FALLBACKS` (optional comma-separated fallback order, tried before demo fallback; if unset, built-in safe defaults are used)
 
-Recommended for robust company discovery:
-- `SERPAPI_API_KEY` (SerpApi key for Google engine)
+Required for Bedrock company discovery:
+- `AWS_BEARER_TOKEN_BEDROCK` (bearer token for Bedrock runtime call path)
+- `CLAUDE_MODEL` (Claude Sonnet model id, e.g. `us.anthropic.claude-sonnet-4-5-20250929-v1:0`)
+- `BEDROCK_AWS_REGION` (optional, defaults to `us-east-1`)
+- Backward-compatible aliases are still accepted: `BEDROCK_CLAUDE_MODEL_ID` and standard AWS credential chain.
 
 Optional for chain anchoring (Base Sepolia):
 - `CHAIN_MODE` (`demo`, `auto`, `real`)
@@ -21,14 +24,14 @@ Optional for chain anchoring (Base Sepolia):
 
 Discovery behavior:
 - Static KB lookup runs first.
-- If KB has no match, discovery uses SerpApi with `engine=google`.
-- If SerpApi key is missing, request fails, or quota is hit, it falls back to DuckDuckGo instant-answer search.
+- If KB has no match, discovery calls AWS Bedrock Claude with native web-search enabled.
+- No fallback provider is used; Bedrock errors are surfaced in the discovery response `fallbackReason`.
 - For top web candidates, the app fetches public page text and extracts structured hints (country, owner/founder, industry, employee/revenue signals) for richer prefill.
 - Discovery now applies deterministic candidate scoring and lets users pick among top matches when confidence is low.
 - ID video checks include confidence-aware gating; low confidence keeps the flow in retry mode.
 - Certificate verification page includes provenance summary (discovery provider + vision pass/fail).
 - Certificate provenance now includes anchoring mode (`real` or `demo`) and fallback reason in auto mode.
-- Terminal logs show provider and fallback reason (`GOOGLE_SERP`, `WEB_SEARCH_FALLBACK`).
+- Terminal logs show Bedrock search status (`BEDROCK_WEB_SEARCH`).
 - Gemini calls now try model fallbacks (if configured) before entering demo mode.
 
 Chain anchoring behavior:

@@ -1,4 +1,4 @@
-import type { WebCompanyCandidate } from "./web-search";
+import { type WebCompanyCandidate, searchWebByQuery } from "./web-search";
 
 export type EnrichmentSummary = {
   legalName?: string;
@@ -10,6 +10,7 @@ export type EnrichmentSummary = {
   unspscCodes?: string[];
   employeeHint?: string;
   revenueHint?: string;
+  companyType?: string;
   evidence: string[];
   confidence: Partial<Record<"legalName" | "country" | "ownerName" | "industryHint", number>>;
 };
@@ -80,6 +81,11 @@ function detectCountryStrong(text: string): string | undefined {
       return country;
     }
   }
+  
+  if (/\b(Pvt\.? Ltd\.?|Private Limited)\b/i.test(text) && /\bIndia\b/i.test(text)) {
+    return "India";
+  }
+
   return undefined;
 }
 
@@ -93,7 +99,7 @@ function detectCountryFromDomain(domain?: string): string | undefined {
 
 function detectCountryFromUsSignals(text: string): string | undefined {
   let score = 0;
-  if (/\b(united states|u\.?s\.?a?\.?|american)\b/i.test(text)) score += 2;
+  if (/\b(united states|u\.s\.a\.|u\.s\.|american)\b/i.test(text) || /\b(US|USA)\b/.test(text)) score += 2;
   if (new RegExp(`\\b[A-Z][a-z]{2,},\\s*(?:${US_STATE_ABBREVIATIONS})\\b`).test(text)) score += 1;
   if (/\b[A-Z][a-z]{2,},\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s+\d{5}(?:-\d{4})?\b/.test(
     text,
@@ -142,6 +148,26 @@ function extractUnspscCodes(text: string): string[] {
     }
   }
   return uniqueSorted(out);
+}
+
+const COMPANY_TYPE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bPrivate\s+Limited\s+Company\b/i, label: "Private Limited" },
+  { pattern: /\bPvt\.?\s*Ltd\.?\b/i, label: "Private Limited" },
+  { pattern: /\bLimited\s+Liability\s+Partnership\b/i, label: "LLP" },
+  { pattern: /\bLLP\b/, label: "LLP" },
+  { pattern: /\bPartnership\s+Firm\b/i, label: "Partnership Firm" },
+  { pattern: /\bPublic\s+Limited\s+Company\b/i, label: "Public Limited" },
+  { pattern: /\bOne\s+Person\s+Company\b/i, label: "One Person Company" },
+  { pattern: /\bOPC\b/, label: "One Person Company" },
+  { pattern: /\bSole\s+Proprietorship\b/i, label: "Sole Proprietorship" },
+  { pattern: /\bSection\s+8\s+Company\b/i, label: "Section 8 Company" },
+];
+
+function extractCompanyType(text: string): string | undefined {
+  for (const { pattern, label } of COMPANY_TYPE_PATTERNS) {
+    if (pattern.test(text)) return label;
+  }
+  return undefined;
 }
 
 async function fetchCandidateText(url: string): Promise<string> {
@@ -206,6 +232,10 @@ export async function enrichCompanyCandidate(
     /(\$[\d\.,]+\s*(?:million|billion|m|bn)?)/i,
     /(revenue[^\.]{0,50})/i,
   ]);
+  let companyType = extractCompanyType(original);
+
+  // Backup fallback deep snippet search if still missing AND no INSTA_API_KEY matched our fields
+  // Removed deep search since paidUpCapital, fundingInfo, partnerNames no longer exist and it was used only for those
 
   if (legalName) evidence.push(`Legal name inferred from title: ${legalName}`);
   if (country && countrySource === "explicit_phrase") {
@@ -221,6 +251,7 @@ export async function enrichCompanyCandidate(
   if (industryHint) evidence.push(`Industry hint extracted from text.`);
   if (employeeHint) evidence.push(`Employee hint extracted.`);
   if (revenueHint) evidence.push(`Revenue hint extracted.`);
+  if (companyType) evidence.push(`Company type detected: ${companyType}`);
 
   return {
     legalName,
@@ -237,6 +268,7 @@ export async function enrichCompanyCandidate(
     industryHint,
     employeeHint,
     revenueHint,
+    companyType,
     evidence,
     confidence: {
       legalName: legalName ? 75 : 0,

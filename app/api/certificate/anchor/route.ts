@@ -7,6 +7,10 @@ import {
 import { getCompanyById } from "@/lib/registry";
 import { submitAnchorTx } from "@/lib/blockchain";
 import { verificationReadiness } from "@/lib/verification-readiness";
+import { getDomainState, patchDomainState, pushGovernanceNotification } from "@/lib/store/domain-store";
+import { trustLevelFromCertification } from "@/lib/domains/contracts";
+import { generateTrustReport } from "@/lib/domains/trust-report";
+import { upsertCertifiedSupplierFromSession } from "@/lib/store/buyer-catalog";
 import {
   appendTerminal,
   getSession,
@@ -73,6 +77,7 @@ export async function POST(req: Request) {
 
   appendTerminal(sessionId, "[QID_CHAIN] anchoring_soulbound_token start");
   const issuedAt = new Date().toISOString();
+  const workflow = getDomainState(sessionId);
   let anchorResult: AnchorSubmissionResult;
   try {
     anchorResult = await submitAnchorTx({
@@ -151,6 +156,53 @@ export async function POST(req: Request) {
       anchorDigest: anchorResult.digest,
       readinessBlockers: [],
     },
+  });
+
+  const report = generateTrustReport(sessionId, anchoringSession);
+  const validTillIso = new Date(new Date(issuedAt).setFullYear(new Date(issuedAt).getFullYear() + 3)).toISOString();
+  const resolvedCertificationType =
+    workflow.certificationType === "none"
+      ? ((anchoringSession.registration?.cert_type as "self" | "digital" | undefined) ?? "self")
+      : workflow.certificationType;
+  const shouldCapturePayment = resolvedCertificationType === "digital";
+  patchDomainState(sessionId, {
+    trustLevel: trustLevelFromCertification(resolvedCertificationType),
+    certificationType: resolvedCertificationType,
+    certificationStage: "completed",
+    verificationStatus: "passed",
+    trustReport: report,
+    payment: {
+      ...workflow.payment,
+      state: workflow.payment.state === "refunded" ? "refunded" : shouldCapturePayment ? "captured" : workflow.payment.state,
+      captureAt: shouldCapturePayment ? new Date().toISOString() : workflow.payment.captureAt,
+    },
+    governance: {
+      ...workflow.governance,
+      validTill: validTillIso,
+      notifications: workflow.governance.notifications,
+      auditTrail: workflow.governance.auditTrail,
+    },
+  });
+  pushGovernanceNotification(
+    sessionId,
+    shouldCapturePayment
+      ? "Certification approved and payment captured"
+      : "Self-certification approved (no payment capture required)",
+  );
+  upsertCertifiedSupplierFromSession({
+    id: `live-${cert.id}`,
+    businessName: company.companyName,
+    country: anchoringSession.registration?.country || "Unknown",
+    naicsCodes: anchoringSession.registration?.naics_codes ?? [],
+    unspscCodes: anchoringSession.registration?.unspsc_codes ?? [],
+    designations: anchoringSession.registration?.designations ?? [],
+    certType: resolvedCertificationType,
+    trustScore: report.trustScore,
+    blockchainVerified: anchorResult.mode === "real",
+    womenOwned: Boolean(anchoringSession.registration?.women_owned),
+    businessSummary: anchoringSession.registration?.business_description,
+    clientsWorkedWith: workflow.questionnaireAnswers.clients_worked_with,
+    lastVerified: report.generatedAt,
   });
 
   setSessionStage(sessionId, "complete");

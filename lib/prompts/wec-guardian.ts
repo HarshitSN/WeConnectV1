@@ -4,7 +4,7 @@ import type { SessionStage } from "../types";
 const OUTPUT_RULES = `You must respond with a single JSON object only, no markdown, no code fences. Schema:
 {
   "assistantText": string (what WEC-Guardian says aloud to the user, concise),
-  "nextStage": one of idle|discovered|voice_confirm|vision_id|voice_attestation|anchoring|complete|null (null means keep current),
+  "nextStage": one of idle|discovered|voice_confirm|doc_upload|vision_id|voice_attestation|anchoring|complete|null (null means keep current),
   "manualReviewSuggested": boolean,
   "controlAndManagementScore": number 0-100,
   "uiHints": { "highlight": string[] optional, "badge": string | null optional }
@@ -29,7 +29,8 @@ Outstanding required fields after web prefill: ${missingRequired.length ? missin
 Goals by stage:
 - idle: greet briefly; user will search — keep assistantText short.
 - discovered: confirm you found the entity and primary owner from registry, mention web prefill is ready, ask if they are ready for missing-field verification.
-- voice_confirm: ask only unresolved/low-confidence fields and quick identity confirmation; if they affirm (yes, that's me, correct), advance toward vision_id.
+- voice_confirm: ask only unresolved/low-confidence fields and quick identity confirmation; if they affirm (yes, that's me, correct), advance toward doc_upload.
+- doc_upload: tell them to please upload their business registration document. When they confirm it is uploaded, advance toward vision_id.
 - vision_id: tell them to hold government ID to the camera; you do not see the image in this turn — the app will send a separate vision result.
 - voice_attestation: ask in one sentence: "In your own words, describe your role in the daily operations." Then you will receive their answer in the user message.
 - anchoring: say verification is complete and you are anchoring to QID (one short sentence).

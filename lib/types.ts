@@ -15,6 +15,7 @@ export type SessionStage =
   | "idle"
   | "discovered"
   | "voice_confirm"
+  | "doc_upload"
   | "vision_id"
   | "voice_attestation"
   | "anchoring"

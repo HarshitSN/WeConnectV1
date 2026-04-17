@@ -1,6 +1,7 @@
 import type { RegistryCompany } from "./types";
 import type { EnrichmentSummary } from "./enrichment";
 import type { CodeClassification } from "./code-classification";
+import type { OwnershipSourceType } from "./india-ownership";
 
 export type FieldSource = "registry" | "web" | "manual";
 
@@ -27,6 +28,7 @@ export type RegistrationDraft = {
   business_description: string;
   cert_type: string;
   assessor: string;
+  company_type: string;
 };
 
 export type DiscoverPrefillResponse = {
@@ -39,6 +41,8 @@ export type DiscoverPrefillResponse = {
     source: "explicit" | "inferred" | "unresolved";
     reason: string;
   };
+  ownershipSourceType: OwnershipSourceType;
+  ownershipConfidence: number;
 };
 
 export const REQUIRED_FIELDS: Array<keyof RegistrationDraft> = [
@@ -48,7 +52,6 @@ export const REQUIRED_FIELDS: Array<keyof RegistrationDraft> = [
   "unspsc_codes",
   "owner_details",
   "business_description",
-  "cert_type",
 ];
 
 export function emptyRegistrationDraft(): RegistrationDraft {
@@ -69,6 +72,7 @@ export function emptyRegistrationDraft(): RegistrationDraft {
     business_description: "",
     cert_type: "",
     assessor: "",
+    company_type: "",
   };
 }
 
@@ -124,6 +128,7 @@ export function normalizeRegistrationDraft(input: unknown): RegistrationDraft {
     business_description: toCleanString(candidate.business_description),
     cert_type: toCleanString(candidate.cert_type),
     assessor: toCleanString(candidate.assessor),
+    company_type: toCleanString(candidate.company_type),
   };
 }
 
@@ -183,6 +188,7 @@ export function mapCompanyToPrefill(
   source: FieldSource = "registry",
   enrichment?: EnrichmentSummary,
   classification?: CodeClassification,
+  ownership?: { sourceType: OwnershipSourceType; confidence: number; value?: number },
 ): DiscoverPrefillResponse {
   const jurisdictionCountry = inferCountry(company.jurisdiction);
   const explicitEnrichmentCountry =
@@ -223,6 +229,45 @@ export function mapCompanyToPrefill(
       : enrichment?.unspscCodes?.length
         ? enrichment.unspscCodes
         : [];
+  const ownershipSourceType: OwnershipSourceType =
+    ownership?.sourceType ?? (source === "registry" ? "registry_prefill" : "web_inferred");
+  const ownershipConfidence = Math.max(
+    0,
+    Math.min(100, Number(ownership?.confidence ?? (source === "registry" ? 90 : 30))),
+  );
+  const resolvedOwnershipPct =
+    typeof ownership?.value === "number" && Number.isFinite(ownership.value)
+      ? Math.max(0, Math.min(100, ownership.value))
+      : source === "registry"
+        ? company.ownershipFemalePct
+        : 100;
+
+  const naicsConfidence =
+    classification?.naics.sourceType === "authoritative"
+      ? classification.naics.confidence
+      : classification?.naics.sourceType === "serp_explicit"
+        ? Math.min(classification.naics.confidence, 68)
+        : classification?.naics.sourceType === "inferred"
+          ? Math.min(classification.naics.confidence, 32)
+          : enrichment?.naicsCodes?.length
+            ? 52
+            : naicsCodes.length
+              ? 40
+              : 0;
+
+  const unspscConfidence =
+    classification?.unspsc.sourceType === "authoritative"
+      ? classification.unspsc.confidence
+      : classification?.unspsc.sourceType === "serp_explicit"
+        ? Math.min(classification.unspsc.confidence, 68)
+        : classification?.unspsc.sourceType === "inferred"
+          ? Math.min(classification.unspsc.confidence, 34)
+          : enrichment?.unspscCodes?.length
+            ? 52
+            : unspscCodes.length
+              ? 40
+              : 0;
+
   const prefill: RegistrationDraft = {
     ...emptyRegistrationDraft(),
     business_name: enrichment?.legalName || company.companyName,
@@ -237,7 +282,7 @@ export function mapCompanyToPrefill(
             {
               fullName: ownerName,
               gender: "Female",
-              ownershipPct: company.ownershipFemalePct,
+              ownershipPct: resolvedOwnershipPct,
             },
           ]
         : [
@@ -250,6 +295,7 @@ export function mapCompanyToPrefill(
     num_employees: enrichment?.employeeHint ?? "",
     revenue_range: enrichment?.revenueHint ?? "",
     business_description: `Registered entity: ${enrichment?.legalName || company.companyName}. ${industryText}.`,
+    company_type: enrichment?.companyType ?? "",
   };
 
   const fieldConfidence: Partial<Record<keyof RegistrationDraft, number>> = {
@@ -264,23 +310,16 @@ export function mapCompanyToPrefill(
             ? 46
             : 0,
     naics_codes:
-      typeof classification?.naics.confidence === "number"
-        ? classification.naics.confidence
-        : enrichment?.naicsCodes?.length
-          ? 74
-          : naicsCodes.length
-            ? 56
-            : 0,
+      naicsConfidence,
     unspsc_codes:
-      typeof classification?.unspsc.confidence === "number"
-        ? classification.unspsc.confidence
-        : enrichment?.unspscCodes?.length
-          ? 74
-          : unspscCodes.length
-            ? 56
-            : 0,
+      unspscConfidence,
     designations: source === "registry" ? 62 : 40,
-    owner_details: source === "registry" ? 86 : 30,
+    owner_details:
+      ownershipSourceType === "exact_exchange_filing"
+        ? Math.max(72, ownershipConfidence)
+        : source === "registry"
+          ? 86
+          : 30,
     business_description: source === "registry" ? 72 : 58,
   };
 
@@ -307,7 +346,9 @@ export function mapCompanyToPrefill(
         : "Country could not be confidently inferred from web source.",
     owner_details: enrichment?.ownerName
       ? `Owner/founder name hint extracted: ${enrichment.ownerName}`
-      : "Owner from available company record.",
+      : ownershipSourceType === "exact_exchange_filing"
+        ? "Ownership percentages sourced from exchange shareholding filing."
+        : "Owner from available company record.",
     naics_codes: classification
       ? `Classification (${classification.naics.sourceType}, ${classification.naics.confidence}%): ${classification.naics.evidence.join(" ")}`
       : enrichment?.naicsCodes?.length
@@ -323,6 +364,7 @@ export function mapCompanyToPrefill(
       : "Generated from registry/web snippet.",
     num_employees: enrichment?.employeeHint ? `Detected employee signal: ${enrichment.employeeHint}` : "",
     revenue_range: enrichment?.revenueHint ? `Detected revenue signal: ${enrichment.revenueHint}` : "",
+    company_type: enrichment?.companyType ? `Detected company type: ${enrichment.companyType}` : "",
   };
 
   return {
@@ -332,6 +374,8 @@ export function mapCompanyToPrefill(
     evidence,
     missingRequired: validateRegistration(prefill, false).missingRequired,
     countryResolution,
+    ownershipSourceType,
+    ownershipConfidence,
   };
 }
 
@@ -351,7 +395,6 @@ export function validateRegistration(draft: RegistrationDraft, paid: boolean) {
   if (invalidUnspsc) missing.push("unspsc_codes_invalid");
   if (!draft.owner_details.length) missing.push("owner_details");
   if (draft.business_description.trim().length < 30) missing.push("business_description");
-  if (isBlank(draft.cert_type)) missing.push("cert_type");
 
   const ownershipTotal = draft.owner_details.reduce((sum, o) => sum + Number(o.ownershipPct || 0), 0);
   const invalidOwnershipPct = draft.owner_details.some(

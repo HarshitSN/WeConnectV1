@@ -14,7 +14,7 @@ describe("resolveCompanyCodes", () => {
 
   it("prefers authoritative explicit signals when present", async () => {
     vi.mocked(searchWebByQuery).mockResolvedValue({
-      provider: "google_serpapi",
+      provider: "aws_bedrock_claude",
       candidates: [
         {
           title: "SEC filing - Company NAICS code 722513 UNSPSC code 90101500",
@@ -45,9 +45,9 @@ describe("resolveCompanyCodes", () => {
 
   it("returns unresolved classification when explicit codes are absent", async () => {
     vi.mocked(searchWebByQuery).mockResolvedValue({
-      provider: "duckduckgo",
+      provider: "aws_bedrock_claude",
       candidates: [],
-      fallbackReason: "EMPTY",
+      fallbackReason: "BEDROCK_EMPTY",
     });
 
     const out = await resolveCompanyCodes({
@@ -71,7 +71,7 @@ describe("resolveCompanyCodes", () => {
 
   it("maps UNSPSC from NAICS when explicit UNSPSC is unavailable", async () => {
     vi.mocked(searchWebByQuery).mockResolvedValue({
-      provider: "google_serpapi",
+      provider: "aws_bedrock_claude",
       candidates: [
         {
           title: "Arby's NAICS code 722511",
@@ -103,7 +103,7 @@ describe("resolveCompanyCodes", () => {
 
   it("prefers explicit UNSPSC over mapped fallback", async () => {
     vi.mocked(searchWebByQuery).mockResolvedValue({
-      provider: "google_serpapi",
+      provider: "aws_bedrock_claude",
       candidates: [
         {
           title: "Procurement filing UNSPSC code 90101500",
@@ -134,7 +134,7 @@ describe("resolveCompanyCodes", () => {
 
   it("infers NAICS from industry language and maps UNSPSC when explicit codes are absent", async () => {
     vi.mocked(searchWebByQuery).mockResolvedValue({
-      provider: "google_serpapi",
+      provider: "aws_bedrock_claude",
       candidates: [
         {
           title: "StatusNeo | Authentic AI Transformations for Enterprises",

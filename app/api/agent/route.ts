@@ -12,17 +12,20 @@ import {
   appendGeminiFallback,
   appendTerminal,
   getSession,
+  getSessionRegistration,
   markGeminiFallbackChainGuardrail,
   pushMessage,
   setSessionStage,
   setAttestation,
 } from "@/lib/session-store";
+import { getDomainState } from "@/lib/store/domain-store";
 import type { SessionStage } from "@/lib/types";
 
 const STAGES: SessionStage[] = [
   "idle",
   "discovered",
   "voice_confirm",
+  "doc_upload",
   "vision_id",
   "voice_attestation",
   "anchoring",
@@ -87,8 +90,8 @@ function localTurnFallback(
     return affirmed
       ? {
           assistantText:
-            "Thanks for confirming. Please hold your government ID steady in front of the camera so I can scan it.",
-          nextStage: "vision_id",
+            "Thanks for confirming. Please upload your business registration document. Once uploaded, say yes or confirm to proceed.",
+          nextStage: "doc_upload",
           manualReviewSuggested: false,
           controlAndManagementScore: 75,
         }
@@ -104,16 +107,32 @@ function localTurnFallback(
     return affirmed
       ? {
           assistantText:
+            "Thank you. Please upload your business registration document. Once uploaded, say yes or confirm to proceed.",
+          nextStage: "doc_upload",
+          manualReviewSuggested: false,
+          controlAndManagementScore: 80,
+        }
+      : {
+          assistantText: "Please say yes to confirm you are the primary owner, then I will prompt for document upload.",
+          nextStage: null,
+          manualReviewSuggested: false,
+          controlAndManagementScore: 70,
+        };
+  }
+  if (stage === "doc_upload") {
+    return affirmed
+      ? {
+          assistantText:
             "Thank you. Please hold your government ID steady in front of the camera. I will scan it now.",
           nextStage: "vision_id",
           manualReviewSuggested: false,
           controlAndManagementScore: 80,
         }
       : {
-          assistantText: "Please say yes to confirm you are the primary owner, then I will start ID scan.",
+          assistantText: "Please upload your business registration document and tell me when it is ready.",
           nextStage: null,
           manualReviewSuggested: false,
-          controlAndManagementScore: 70,
+          controlAndManagementScore: 75,
         };
   }
   return {
@@ -165,9 +184,13 @@ export async function POST(req: Request) {
     }
 
     const company = session.companyId ? getCompanyById(session.companyId) : null;
+    const workflow = getDomainState(sessionId);
+    const isDigitalPath =
+      workflow.certificationType === "digital" ||
+      getSessionRegistration(sessionId)?.cert_type === "digital";
     const validation = validateRegistration(
       session.registration ?? emptyRegistrationDraft(),
-      session.paid ?? false,
+      isDigitalPath ? (session.paid ?? false) : true,
     );
     if (!hasExplicitGeminiFallbacksConfigured() && markGeminiFallbackChainGuardrail(sessionId)) {
       appendTerminal(
@@ -337,12 +360,16 @@ export async function POST(req: Request) {
     let effectiveAssistantText = turn.assistantText;
     const affirmed = hasAffirmation(userText);
     if (stage === "discovered" && affirmed) {
-      effectiveNextStage = "vision_id";
+      effectiveNextStage = "doc_upload";
       effectiveAssistantText =
-        "Thanks for confirming. Please hold your government ID steady in front of the camera so I can scan it.";
+        "Thanks for confirming. Please upload your business registration document. Once uploaded, say yes or confirm to proceed.";
     } else if (stage === "discovered" && !effectiveNextStage) {
       effectiveNextStage = "voice_confirm";
     } else if (stage === "voice_confirm" && affirmed) {
+      effectiveNextStage = "doc_upload";
+      effectiveAssistantText =
+        "Thank you. Please upload your business registration document. Once uploaded, say yes or confirm to proceed.";
+    } else if (stage === "doc_upload" && affirmed) {
       effectiveNextStage = "vision_id";
       effectiveAssistantText =
         "Thank you. Please hold your government ID steady in front of the camera. I will scan it now.";

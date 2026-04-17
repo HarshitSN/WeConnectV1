@@ -60,6 +60,13 @@ export type VisionResult = {
   fallbackMeta?: GeminiFallbackMeta;
 };
 
+export type DocumentVerificationResult = {
+  verified: boolean;
+  confidence: number;
+  report: string;
+  quotaFallback: boolean;
+};
+
 export type AttestationResult = {
   score: number;
   manualReview: boolean;
@@ -530,6 +537,71 @@ export async function runVision(
     };
   }
 }
+
+function mockDocumentVerification(companyName: string): DocumentVerificationResult {
+  return {
+    verified: true,
+    confidence: 85,
+    report: `Fallback demo: Automatically verified document contents for ${companyName}.`,
+    quotaFallback: false,
+  };
+}
+
+export async function runDocumentVerification(
+  companyName: string,
+  country: string,
+  documents: Array<{ base64: string; mimeType: string }>,
+): Promise<DocumentVerificationResult> {
+  const prompt = `Please review the attached business registration documents.
+Does the documentation explicitly support the existence of a business named roughly "${companyName}" incorporated or operating in "${country}"? 
+
+Return JSON only:
+{
+  "verified": boolean,
+  "confidence": number (0-100),
+  "report": string (a short one sentence summary of what was found)
+}`;
+
+  if (!hasGeminiKey()) {
+    return { ...mockDocumentVerification(companyName), quotaFallback: false };
+  }
+
+  const parts: any[] = [{ text: prompt }];
+  for (const doc of documents) {
+    parts.push({
+      inlineData: { data: doc.base64, mimeType: doc.mimeType },
+    });
+  }
+
+  try {
+    const run = await generateWithModelFallback(parts);
+    const text = run.text;
+    try {
+      const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
+      const data = JSON.parse(cleaned) as { verified: boolean; confidence: number; report: string };
+      return { 
+        verified: Boolean(data.verified), 
+        confidence: Number(data.confidence) || 0,
+        report: String(data.report || ""),
+        quotaFallback: false 
+      };
+    } catch {
+      return {
+        verified: false,
+        confidence: 0,
+        report: "Parse error from document verification model.",
+        quotaFallback: false,
+      };
+    }
+  } catch (error) {
+    return {
+      ...mockDocumentVerification(companyName),
+      quotaFallback: true,
+      report: "Quota fallback triggered. " + mockDocumentVerification(companyName).report,
+    };
+  }
+}
+
 
 function mockAttestation(userText: string): AttestationResult {
   const short = userText.trim().length < 20;

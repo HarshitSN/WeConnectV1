@@ -8,6 +8,7 @@ import {
   type RegistrationDraft,
   validateRegistration,
 } from "@/lib/registration";
+import { trustLevelLabel, type CertificationType, type ComplianceResult, type TrustReport } from "@/lib/domains/contracts";
 import { BlockAnchorAnimation } from "./BlockAnchorAnimation";
 import { CertificateCard, type CertDisplay } from "./CertificateCard";
 import { TerminalFeed } from "./TerminalFeed";
@@ -22,6 +23,25 @@ type Match = {
   primaryOwner: string;
   ownershipFemalePct?: number | null;
   ownerPrefillPct?: number | null;
+};
+
+type OwnershipSummary = {
+  value?: number;
+  sourceType?: "exact_exchange_filing" | "web_inferred" | "registry_prefill";
+  confidence?: number;
+  asOfDate?: string;
+  sourceUrl?: string;
+};
+
+type OwnershipBreakdown = {
+  ownership_total_promoter_pct?: number;
+  ownership_total_public_pct?: number;
+  ownership_breakdown?: Array<{ category: string; pct: number }>;
+  as_of_date?: string;
+  source_url?: string;
+  source_type?: "exchange_filing";
+  exchange?: "NSE" | "BSE";
+  symbol?: string;
 };
 
 function speak(text: string) {
@@ -129,6 +149,7 @@ type DiscoverJson = {
     country?: string;
     ownerName?: string;
     industryHint?: string;
+    companyType?: string;
   };
   classificationSummary?: {
     naics?: { sourceType?: "authoritative" | "serp_explicit" | "inferred" | "unresolved"; confidence?: number };
@@ -142,6 +163,69 @@ type DiscoverJson = {
   selectedCandidateIndex?: number;
   ownershipEvidenceConfidence?: number;
   countryRequiresConfirmation?: boolean;
+  ownership?: OwnershipSummary;
+  ownershipBreakdown?: OwnershipBreakdown;
+  ownershipSourceType?: "exact_exchange_filing" | "web_inferred" | "registry_prefill";
+  ownershipConfidence?: number;
+};
+
+function humanizeMissingField(field: string): string {
+  const map: Record<string, string> = {
+    business_name: "business name",
+    country: "country",
+    naics_codes: "NAICS codes",
+    unspsc_codes: "UNSPSC codes",
+    owner_details: "owner details",
+    business_description: "business description",
+    cert_type: "certification type",
+  };
+  return map[field] ?? field.replace(/_/g, " ");
+}
+
+type WorkflowState = {
+  trustLevel: "self_declared" | "self_certified" | "digitally_certified";
+  certificationType: CertificationType;
+  certificationStage: string;
+  verificationStatus: "pending" | "running" | "passed" | "manual_review" | "failed";
+  payment: {
+    state: "not_started" | "hold_placed" | "captured" | "refunded";
+    amountUsd: number;
+    holdAt?: string;
+    captureAt?: string;
+    refundAt?: string;
+  };
+  questionnaireAnswers: Record<string, string>;
+  compliance?: ComplianceResult;
+  trustReport?: TrustReport;
+  governance: {
+    roles: Array<"supplier" | "buyer" | "admin">;
+    notifications: string[];
+    auditTrail: string[];
+    validTill?: string;
+    continuouslyMonitored: boolean;
+  };
+};
+
+type BuyerFlowRow = {
+  supplier: {
+    id: string;
+    business_name: string;
+    country: string;
+    cert_type: "none" | "self" | "digital" | "auditor";
+    cert_status: string;
+    trust_score: number;
+  };
+  profile: {
+    trustLevel: "self_declared" | "self_certified" | "digitally_certified";
+    trustScore: number;
+    riskLevel: "low" | "medium" | "high";
+    lastVerified: string;
+  };
+  match: {
+    matchScore: number;
+    certificationPriority: number;
+    rankReason: string;
+  };
 };
 
 async function parseJsonSafe<T>(r: Response): Promise<{
@@ -195,6 +279,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [badge, setBadge] = useState<string | null>(null);
   const [cert, setCert] = useState<CertDisplay | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [isVerifyingDocs, setIsVerifyingDocs] = useState(false);
+  const [selectedDocuments, setSelectedDocuments] = useState<File[]>([]);
   const [anchoring, setAnchoring] = useState(false);
   const [pendingTx, setPendingTx] = useState<string | undefined>();
   const [visionNote, setVisionNote] = useState<string>("");
@@ -218,6 +304,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [countryConfirmed, setCountryConfirmed] = useState(true);
   const [countryRequiresConfirmation, setCountryRequiresConfirmation] = useState(false);
   const [ownershipEvidenceConfidence, setOwnershipEvidenceConfidence] = useState(0);
+  const [ownership, setOwnership] = useState<OwnershipSummary | null>(null);
+  const [ownershipBreakdown, setOwnershipBreakdown] = useState<OwnershipBreakdown | null>(null);
   const [visionBlockers, setVisionBlockers] = useState<string[]>([]);
   const [anchorBlockers, setAnchorBlockers] = useState<string[]>([]);
   const [anchorFailureReason, setAnchorFailureReason] = useState<string>("");
@@ -235,6 +323,25 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
+  const [workflow, setWorkflow] = useState<WorkflowState | null>(null);
+  const [compliance, setCompliance] = useState<ComplianceResult | null>(null);
+  const [trustReport, setTrustReport] = useState<TrustReport | null>(null);
+  const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, string>>({
+    ownership_control: "",
+    operational_involvement: "",
+    years_in_business: "",
+    clients_worked_with: "",
+    product_scale: "",
+  });
+  const [buyerQuery, setBuyerQuery] = useState("Women-owned textile suppliers in India");
+  const [buyerLoading, setBuyerLoading] = useState(false);
+  const [buyerRows, setBuyerRows] = useState<BuyerFlowRow[]>([]);
+  const [buyerRecommendations, setBuyerRecommendations] = useState<BuyerFlowRow[]>([]);
+  const [buyerSelectedId, setBuyerSelectedId] = useState<string | null>(null);
+  const [journeyMode, setJourneyMode] = useState<"supplier" | "buyer">("supplier");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const lastAutosavedSessionIdRef = useRef<string | null>(null);
+  const lastAutosavedPayloadRef = useRef<string>("");
 
   const refreshSession = useCallback(async (sid: string) => {
     const r = await fetch(`/api/session?id=${sid}`);
@@ -251,6 +358,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       registration?: RegistrationDraft;
       paid?: boolean;
       visionChecks?: { idPassed?: boolean };
+      workflow?: WorkflowState;
     };
     if (j.terminalLines) {
       const nextSig = `${j.terminalLines.length}:${j.terminalLines[j.terminalLines.length - 1] ?? ""}`;
@@ -260,8 +368,21 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       }
     }
     if (j.stage && j.stage !== stage) setStage(j.stage);
-    if (j.registration && JSON.stringify(j.registration) !== JSON.stringify(registration)) {
-      setRegistration(j.registration);
+    if (j.registration) {
+      const workflowCertType = j.workflow?.certificationType;
+      const selectedCertType =
+        workflowCertType === "self" || workflowCertType === "digital"
+          ? workflowCertType
+          : registration.cert_type === "self" || registration.cert_type === "digital"
+            ? registration.cert_type
+            : "";
+      const serverRegistrationWithCert =
+        !j.registration.cert_type && selectedCertType
+          ? { ...j.registration, cert_type: selectedCertType }
+          : j.registration;
+      if (JSON.stringify(serverRegistrationWithCert) !== JSON.stringify(registration)) {
+        setRegistration(serverRegistrationWithCert);
+      }
     }
     const nextPaid = Boolean(j.paid);
     if (nextPaid !== paid) setPaid(nextPaid);
@@ -270,6 +391,12 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       j.visionChecks.idPassed !== visionChecks.idPassed
     ) {
       setVisionChecks(j.visionChecks);
+    }
+    if (j.workflow) {
+      setWorkflow(j.workflow);
+      setCompliance(j.workflow.compliance ?? null);
+      setTrustReport(j.workflow.trustReport ?? null);
+      setQuestionnaireAnswers((prev) => ({ ...prev, ...(j.workflow?.questionnaireAnswers ?? {}) }));
     }
   }, [stage, registration, paid, visionChecks.idPassed]);
 
@@ -284,6 +411,167 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     },
     [sessionId],
   );
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const payload = JSON.stringify({ registration, paid });
+    if (
+      lastAutosavedSessionIdRef.current === sessionId &&
+      lastAutosavedPayloadRef.current === payload
+    ) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      void saveRegistration(registration, paid).then(() => {
+        lastAutosavedSessionIdRef.current = sessionId;
+        lastAutosavedPayloadRef.current = payload;
+      });
+    }, 450);
+    return () => window.clearTimeout(timeout);
+  }, [sessionId, registration, paid, saveRegistration]);
+
+  const setCertificationType = useCallback(
+    async (certificationType: CertificationType) => {
+      setRegistration((prev) => ({ ...prev, cert_type: certificationType }));
+      if (!sessionId) {
+        setAssistant("Session is still initializing. Please retry in a moment.");
+        return;
+      }
+
+      const optimisticTrustLevel =
+        certificationType === "digital"
+          ? "digitally_certified"
+          : certificationType === "self"
+            ? "self_certified"
+            : "self_declared";
+      const optimisticStage =
+        certificationType === "digital"
+          ? "digital_verification"
+          : certificationType === "self"
+            ? "self_certification"
+            : "intake";
+      setWorkflow((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          certificationType,
+          trustLevel: optimisticTrustLevel,
+          certificationStage: optimisticStage,
+        };
+      });
+      setAssistant(
+        certificationType === "digital"
+          ? "Digital certification path selected."
+          : certificationType === "self"
+            ? "Self-certification path selected."
+            : "Switched to self-declared path.",
+      );
+      setBadge(
+        certificationType === "digital"
+          ? "PATH · Level 3 Digital"
+          : certificationType === "self"
+            ? "PATH · Level 2 Self-Certified"
+            : "PATH · Level 1 Self-Declared",
+      );
+
+      try {
+        const r = await fetch("/api/workflow/transition", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            action: "select_certification_type",
+            certificationType,
+          }),
+        });
+        const parsed = await parseJsonSafe<{ workflow?: WorkflowState }>(r);
+        if (parsed.ok && parsed.data?.workflow) {
+          setWorkflow(parsed.data.workflow);
+          return;
+        }
+        setAssistant(parsed.errorMessage ?? "Could not update certification path.");
+      } catch {
+        setAssistant("Could not reach workflow service. Please retry.");
+      }
+    },
+    [sessionId],
+  );
+
+  const saveQuestionnaire = useCallback(async () => {
+    if (!sessionId) return;
+    const r = await fetch("/api/workflow/transition", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        action: "update_questionnaire",
+        questionnaireAnswers,
+      }),
+    });
+    const parsed = await parseJsonSafe<{ workflow?: WorkflowState }>(r);
+    if (parsed.ok && parsed.data?.workflow) {
+      setWorkflow(parsed.data.workflow);
+      setAssistant("Questionnaire saved.");
+    }
+  }, [sessionId, questionnaireAnswers]);
+
+  const runCompliance = useCallback(async () => {
+    if (!sessionId) return;
+    const r = await fetch("/api/compliance/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    });
+    const parsed = await parseJsonSafe<{ compliance?: ComplianceResult; workflow?: WorkflowState }>(r);
+    if (parsed.ok && parsed.data) {
+      if (parsed.data.compliance) setCompliance(parsed.data.compliance);
+      if (parsed.data.workflow) setWorkflow(parsed.data.workflow);
+      setAssistant("Compliance checks completed.");
+    }
+  }, [sessionId]);
+
+  const createTrustReport = useCallback(async () => {
+    if (!sessionId) return;
+    const r = await fetch("/api/trust-report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    });
+    const parsed = await parseJsonSafe<{
+      trustReport?: TrustReport;
+      workflow?: WorkflowState;
+    }>(r);
+    if (parsed.ok && parsed.data) {
+      if (parsed.data.trustReport) setTrustReport(parsed.data.trustReport);
+      if (parsed.data.workflow) setWorkflow(parsed.data.workflow);
+      setAssistant("WeConnect Trust Report generated.");
+    }
+  }, [sessionId]);
+
+  const runBuyerSearch = useCallback(async () => {
+    setBuyerLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (buyerQuery.trim()) qs.set("query", buyerQuery.trim());
+      const r = await fetch(`/api/buyer/search?${qs.toString()}`);
+      const parsed = await parseJsonSafe<{
+        results?: BuyerFlowRow[];
+        recommendations?: BuyerFlowRow[];
+      }>(r);
+      if (!parsed.ok || !parsed.data) {
+        setAssistant(parsed.errorMessage ?? "Buyer search failed.");
+        return;
+      }
+      const results = parsed.data.results ?? [];
+      setBuyerRows(results);
+      setBuyerRecommendations(parsed.data.recommendations ?? []);
+      if (results.length) {
+        setBuyerSelectedId((prev) => prev ?? results[0].supplier.id);
+      }
+    } finally {
+      setBuyerLoading(false);
+    }
+  }, [buyerQuery]);
 
   useEffect(() => {
     void (async () => {
@@ -321,12 +609,23 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     await refreshSession(sessionId);
     if (!j.ok || !j.match) {
       setMatch(null);
+      setOwnership(null);
+      setOwnershipBreakdown(null);
       setAssistant(j.message ?? "No match.");
       speak(j.message ?? "No match in the demo registry.");
       return;
     }
     setMatch(j.match);
-    setRegistration(j.prefill ?? emptyRegistrationDraft());
+    const preservedCertType =
+      registration.cert_type === "self" || registration.cert_type === "digital"
+        ? registration.cert_type
+        : workflow?.certificationType === "self" || workflow?.certificationType === "digital"
+          ? workflow.certificationType
+          : "";
+    setRegistration({
+      ...(j.prefill ?? emptyRegistrationDraft()),
+      cert_type: preservedCertType,
+    });
     setFieldConfidence(j.fieldConfidence ?? {});
     setFieldSource(j.fieldSource ?? {});
     setFieldEvidence(j.evidence ?? {});
@@ -335,22 +634,30 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     setNeedsCandidateConfirmation(Boolean(j.source === "web" && j.lowConfidence && !confirmedSelection));
     setCountryRequiresConfirmation(Boolean(j.countryRequiresConfirmation));
     setCountryConfirmed(!Boolean(j.countryRequiresConfirmation));
-    setOwnershipEvidenceConfidence(Number(j.ownershipEvidenceConfidence ?? 0));
+    setOwnership(j.ownership ?? null);
+    setOwnershipBreakdown(j.ownershipBreakdown ?? null);
+    setOwnershipEvidenceConfidence(
+      Number(j.ownershipEvidenceConfidence ?? j.ownershipConfidence ?? j.ownership?.confidence ?? 0),
+    );
     setClassificationSummary(j.classificationSummary);
     setPaid(false);
+    const missingFromPrefill = (j.missingRequired ?? [])
+      .filter((f) => f !== "paid")
+      .slice(0, 4)
+      .map(humanizeMissingField);
+    const missingLine = missingFromPrefill.length
+      ? ` I couldn't fetch ${missingFromPrefill.join(", ")} from web sources, so please add it manually.`
+      : "";
     setAssistant(
       j.source === "web"
-        ? `I found a live ${j.provider === "google_serpapi" ? "Google" : "web"} result for ${
+        ? `We’ve pre-filled your business details. Please confirm. I found ${
             j.match.companyName
-          }. I prefilled what I could, and we'll confirm the rest.`
-        : `I've found ${j.match.companyName} in ${j.match.jurisdiction}. Primary owner on file: ${j.match.primaryOwner}.`,
+          } from live web search and prepared the draft.${missingLine}`
+        : `We’ve pre-filled your business details. Please confirm. I found ${j.match.companyName} in ${j.match.jurisdiction}.`,
     );
     if (j.source === "web") {
-      const fallbackNote =
-        j.provider === "duckduckgo" && j.fallbackReason
-          ? ` (fallback: ${j.fallbackReason})`
-          : "";
-      setBadge(`DISCOVERY SOURCE · ${j.provider === "google_serpapi" ? "Google SerpApi" : "DuckDuckGo"}${fallbackNote}`);
+      const fallbackNote = j.fallbackReason ? ` (${j.fallbackReason})` : "";
+      setBadge(`DISCOVERY SOURCE · AWS Bedrock Claude${fallbackNote}`);
       if (j.lowConfidence) {
         setAssistant(
           `I found multiple possible matches for ${j.match.companyName}. Please choose the best candidate before continuing.`,
@@ -359,11 +666,15 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       }
     }
     if (j.source === "web" && j.lowConfidence && !confirmedSelection) {
-      speak(`I found multiple matches for ${j.match.companyName}. Please confirm the best candidate.`);
+      const speechMissingLine = missingFromPrefill.length
+        ? ` I couldn't fetch ${missingFromPrefill.join(", ")} from SERP and web data. Please fill those manually after confirming the company.`
+        : "";
+      speak(`I found multiple matches for ${j.match.companyName}. Please confirm the best candidate.${speechMissingLine}`);
     } else {
-      speak(
-        `I found ${j.match.companyName}. Primary owner on file: ${j.match.primaryOwner}. Ready to verify?`,
-      );
+      const speechMissingLine = missingFromPrefill.length
+        ? ` I couldn't fetch ${missingFromPrefill.join(", ")} from SERP and web data. Please fill those manually.`
+        : "";
+      speak(`We have pre-filled your business details. Please confirm and continue.${speechMissingLine}`);
     }
   };
 
@@ -412,6 +723,20 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     }
     if (countryRequiresConfirmation && !countryConfirmed) {
       const message = "Please confirm the country field before starting verification.";
+      setAssistant(message);
+      speak(message);
+      return;
+    }
+    if (activeCertType === "none") {
+      const message = "Please choose certification path first (Step 2).";
+      setAssistant(message);
+      speak(message);
+      return;
+    }
+    if (isSelfPath) {
+      setStage("doc_upload");
+      const message =
+        "Self-Certified path selected. Please upload your business registration documents to continue.";
       setAssistant(message);
       speak(message);
       return;
@@ -551,12 +876,98 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       speak(prompt);
     }
   };
+  const verifyDocuments = async (files: File[]) => {
+    if (!sessionId || !files.length) return;
+    setIsVerifyingDocs(true);
+    try {
+      const documents = await Promise.all(
+        files.map(async (f) => {
+          return new Promise<{ base64: string; mimeType: string }>((resolve, reject) => {
+             const reader = new FileReader();
+             reader.onload = (event) => {
+               const dataUrl = event.target?.result as string;
+               const base64 = dataUrl.split(",")[1];
+               resolve({ base64, mimeType: f.type });
+             };
+             reader.onerror = reject;
+             reader.readAsDataURL(f);
+          });
+        })
+      );
+
+      const res = await fetchWithRetry("/api/document-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, documents }),
+      });
+
+      const { ok, data } = await parseJsonSafe<{ result: { verified: boolean; confidence: number; report: string } }>(res);
+      if (ok && data?.result) {
+        if (data.result.verified) {
+          if (isSelfPath) {
+            await runCompliance();
+            await createTrustReport();
+            const message =
+              "Self-certification document upload complete. Compliance and trust report are ready. You can issue the certificate.";
+            setAssistant(message);
+            speak(message);
+          } else {
+            void callAgent(`I have uploaded the relevant documents. Report: ${data.result.report}`);
+          }
+        } else {
+          if (isSelfPath) {
+            const message =
+              "Documents uploaded with minor issues. You can continue self-certification and review report flags.";
+            setAssistant(message);
+            speak(message);
+          } else {
+            void callAgent(`I uploaded documents but they could not be fully verified contextually. Please instruct me how to proceed. Report: ${data.result.report}`);
+          }
+        }
+      } else {
+         alert("Failed to verify documents dynamically.");
+      }
+    } catch (err) {
+      console.warn("Document submission error:", err);
+      alert("Verification network error.");
+    } finally {
+      setIsVerifyingDocs(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+
+    const next = [...selectedDocuments];
+    const seen = new Set(next.map((f) => `${f.name}:${f.size}:${f.lastModified}:${f.type}`));
+    for (const file of files) {
+      const sig = `${file.name}:${file.size}:${file.lastModified}:${file.type}`;
+      if (seen.has(sig)) continue;
+      if (next.length >= 3) {
+        alert("Maximum 3 documents allowed.");
+        break;
+      }
+      seen.add(sig);
+      next.push(file);
+    }
+    if (!next.length) return;
+    setSelectedDocuments(next);
+    await verifyDocuments(next);
+  };
 
   const verifyUrl =
     typeof window !== "undefined" && cert
       ? `${window.location.origin}/verify/${cert.id}`
       : "";
-  const registrationCheck = validateRegistration(registration, paid);
+  const activeCertType: CertificationType =
+    workflow?.certificationType && workflow.certificationType !== "none"
+      ? workflow.certificationType
+      : ((registration.cert_type as CertificationType | undefined) ?? "none");
+  const isDigitalPath = activeCertType === "digital";
+  const isSelfPath = activeCertType === "self";
+  const registrationCheck = validateRegistration(registration, isDigitalPath ? paid : true);
   const naicsSourceType = classificationSummary?.naics?.sourceType ?? "unresolved";
   const unspscSourceType = classificationSummary?.unspsc?.sourceType ?? "unresolved";
   const toBadge = (sourceType: string, confidence?: number) => {
@@ -572,7 +983,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   };
   const readinessBlockers = [
     ...registrationCheck.missingRequired,
-    ...(visionChecks.idPassed ? [] : ["vision_id"]),
+    ...(isDigitalPath && !visionChecks.idPassed ? ["vision_id"] : []),
   ];
   const countryConfirmationBlockers =
     countryRequiresConfirmation && !countryConfirmed ? ["country_confirmation"] : [];
@@ -582,18 +993,40 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const readinessForIssue = mergedBlockers.length === 0;
   const mockCardValid =
     cardNumber.replace(/\s+/g, "").length >= 12 && cardExpiry.trim().length >= 4 && cardCvv.length >= 3;
-  const flowSteps = ["Discover", "Confirm", "Voice", "Vision", "Payment", "Certificate"] as const;
+  const flowSteps = isSelfPath
+    ? (["Intake", "Path", "Confirm", "Upload", "Compliance", "Trust Report", "Certificate"] as const)
+    : (["Intake", "Path", "Confirm", "Voice", "Upload", "Vision", "Payment", "Certificate"] as const);
   const currentFlowStep = (() => {
-    if (cert || stage === "complete") return 5;
-    if (stage === "anchoring" || (paid && !readinessForIssue)) return 4;
-    if (paid && readinessForIssue) return 5;
-    if (stage === "voice_attestation" || stage === "vision_id" || visionChecks.idPassed) return 3;
-    if (stage === "voice_confirm" || stage === "discovered") return 2;
-    if (match) return 1;
-    return 0;
+    if (cert || stage === "complete") return flowSteps.length - 1;
+    if (stage === "anchoring") return flowSteps.length - 1;
+    if (!match) return 0;
+    if (activeCertType === "none") return 1;
+    if (
+      needsCandidateConfirmation ||
+      !registration.country.trim() ||
+      (countryRequiresConfirmation && !countryConfirmed) ||
+      stage === "discovered"
+    ) {
+      return 2;
+    }
+    if (isSelfPath) {
+      if (stage === "doc_upload" && !compliance) return 3;
+      if (compliance && !trustReport) return 4;
+      if (trustReport && !cert) return 5;
+      return 3;
+    }
+    if (stage === "voice_confirm") return 3;
+    if (stage === "doc_upload") return 4;
+    if (stage === "vision_id") return 5;
+    if (stage === "voice_attestation" || (isDigitalPath && !paid)) return 6;
+    return 3;
   })();
   const paymentUnlocked =
-    stage === "voice_attestation" || stage === "anchoring" || stage === "complete" || Boolean(cert);
+    isSelfPath ||
+    stage === "voice_attestation" ||
+    stage === "anchoring" ||
+    stage === "complete" ||
+    Boolean(cert);
   const nextAction = (() => {
     if (!sessionId) {
       return {
@@ -603,37 +1036,55 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     }
     if (!match) {
       return {
-        title: "Step 1: Enter business name and click Discover.",
-        detail: "Example: Arby's, StatusNeo, Nile Logistics.",
+        title: "Step 1: Proactive intake.",
+        detail: "Enter business name or URL and click Discover.",
+      };
+    }
+    if (activeCertType === "none") {
+      return {
+        title: "Step 2: Choose certification path.",
+        detail: "Select Self-Certified or Digital Certification.",
       };
     }
     if (needsCandidateConfirmation) {
       return {
-        title: "Step 2: Confirm the right company candidate.",
+        title: "Step 3: Confirm the right company candidate.",
         detail: "Pick the best match under Top web candidates and click Use selected candidate.",
       };
     }
     if (!registration.country.trim()) {
       return {
-        title: "Step 2: Enter country.",
+        title: "Step 3: Enter country.",
         detail: "Type country and confirm it before starting verification.",
       };
     }
     if (countryRequiresConfirmation && !countryConfirmed) {
       return {
-        title: "Step 2: Confirm country.",
+        title: "Step 3: Confirm country.",
         detail: "Click Confirm country to continue.",
+      };
+    }
+    if (isSelfPath && (stage === "discovered" || stage === "voice_confirm")) {
+      return {
+        title: "Step 4: Upload Document.",
+        detail: "Self path skips voice/vision. Upload your business registration document.",
       };
     }
     if (stage === "discovered" || stage === "voice_confirm") {
       return {
-        title: "Step 3: Start voice verification.",
+        title: "Step 4: Start voice verification.",
         detail: "Click Start 60-second verification, then say yes.",
+      };
+    }
+    if (stage === "doc_upload") {
+      return {
+        title: "Step 5: Upload Document.",
+        detail: "Select your business registration document and upload it.",
       };
     }
     if (stage === "vision_id") {
       return {
-        title: "Step 4: Complete ID video.",
+        title: "Step 6: Complete ID video.",
         detail: scanning
           ? "Analyzing your clip… please wait."
           : "Open camera and record a 2-second clip. Keep face and ID steady.",
@@ -641,13 +1092,13 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     }
     if (stage === "voice_attestation") {
       return {
-        title: "Step 5: Explain your role.",
+        title: "Step 7: Explain your role.",
         detail: "Use Speak or Type box and describe your daily operational role.",
       };
     }
-    if (!paid) {
+    if (isDigitalPath && !paid) {
       return {
-        title: "Step 6: Complete payment gate.",
+        title: "Step 8: Complete payment gate.",
         detail: "Enter mock card details and mark payment as verified.",
       };
     }
@@ -664,10 +1115,31 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       };
     }
     return {
-      title: "Step 6: Issue certificate.",
+      title: isSelfPath ? "Step 7: Issue certificate." : "Step 8: Issue certificate.",
       detail: "Click Issue certificate to anchor and finish.",
     };
   })();
+  const buyerSelected = buyerRows.find((row) => row.supplier.id === buyerSelectedId) ?? null;
+  const buyerStepStates = [
+    buyerQuery.trim().length > 0,
+    buyerRows.length > 0,
+    buyerRows.some((row) => row.match.matchScore >= 0),
+    buyerRecommendations.length > 0,
+    Boolean(buyerSelected),
+    Boolean(buyerSelected && cert),
+  ];
+  const buyerCurrentStep = (() => {
+    const firstPending = buyerStepStates.findIndex((done) => !done);
+    return firstPending === -1 ? buyerStepStates.length - 1 : firstPending;
+  })();
+  const buyerSteps = [
+    "Search Query",
+    "Ranked Results",
+    "Match Score",
+    "Top 3 Recos",
+    "Supplier Profile",
+    "Verify Certificate",
+  ] as const;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
@@ -688,10 +1160,20 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           </header>
         )}
 
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
-          Demonstration only — not legal identity verification. Uses a static demo registry and
-          testnet/demo anchoring modes.
-        </p>
+        <section className="rounded-2xl border border-white/10 bg-gradient-to-r from-zinc-900 to-zinc-950 p-4">
+          <p className="text-sm font-semibold text-zinc-100">Certification Journey</p>
+          <p className="mt-1 text-xs text-zinc-400">
+            Build trust from self-declared profile to digitally certified supplier.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-200/90">
+              Demo mode: not legal identity verification
+            </span>
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200/90">
+              Multi-language ready: English, Hindi, Spanish
+            </span>
+          </div>
+        </section>
         {quotaFallbackNotice && (
           <p className="rounded-lg border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-xs text-violet-200/95">
             {fallbackReasonCopy(quotaFallbackReason, quotaFallbackSubtype)} Continuing in{" "}
@@ -699,33 +1181,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             {fallbackReasonGuidance(quotaFallbackReason, quotaFallbackSubtype)}
           </p>
         )}
-        <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
-          <p className="text-sm font-semibold text-cyan-100">Guided Flow</p>
-          <p className="mt-1 text-sm text-cyan-50">{nextAction.title}</p>
-          <p className="mt-1 text-xs text-cyan-200/80">{nextAction.detail}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {flowSteps.map((step, index) => (
-              <span
-                key={step}
-                className={`rounded-full border px-2 py-1 text-[11px] ${
-                  index < currentFlowStep
-                    ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
-                    : index === currentFlowStep
-                      ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                      : "border-white/10 bg-black/20 text-zinc-400"
-                }`}
-              >
-                {index + 1}. {step}
-              </span>
-            ))}
-          </div>
-        </section>
-
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h2 className="text-lg font-semibold text-white">Proactive intake</h2>
+          <h2 className="text-lg font-semibold text-white">Step 1: Proactive intake</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            Enter a business name or URL. Try <strong className="text-zinc-200">Global Tech Solutions</strong>
-            , Nile Logistics, or Red Sand Trading.
+            Enter a business name or URL. Try <strong className="text-zinc-200">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
           </p>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <input
@@ -743,6 +1202,375 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               Discover
             </button>
           </div>
+        </section>
+        <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
+          <p className="text-sm font-semibold text-cyan-100">Step 2: Choose certification path</p>
+          <p className="mt-1 text-xs text-cyan-200/80">
+            Current:{" "}
+            {activeCertType === "digital"
+              ? "Digital Certification (Level 3)"
+              : activeCertType === "self"
+                ? "Self-Certified (Level 2)"
+                : "Not selected"}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void setCertificationType("self");
+              }}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                isSelfPath
+                  ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                  : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
+              }`}
+            >
+              Self-Certified
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void setCertificationType("digital");
+              }}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                isDigitalPath
+                  ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                  : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
+              }`}
+            >
+              Digital Certification
+            </button>
+          </div>
+        </section>
+        <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
+          <p className="text-sm font-semibold text-cyan-100">Guided Flow</p>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setJourneyMode("supplier")}
+              className={`rounded-md border px-3 py-1 text-xs ${
+                journeyMode === "supplier"
+                  ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                  : "border-white/10 bg-black/20 text-zinc-400"
+              }`}
+            >
+              Supplier Journey
+            </button>
+            <button
+              type="button"
+              onClick={() => setJourneyMode("buyer")}
+              className={`rounded-md border px-3 py-1 text-xs ${
+                journeyMode === "buyer"
+                  ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                  : "border-white/10 bg-black/20 text-zinc-400"
+              }`}
+            >
+              Buyer Journey
+            </button>
+          </div>
+          {journeyMode === "supplier" ? (
+            <>
+              <p className="mt-3 text-sm text-cyan-50">{nextAction.title}</p>
+              <p className="mt-1 text-xs text-cyan-200/80">{nextAction.detail}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {flowSteps.map((step, index) => (
+                  <span
+                    key={step}
+                    className={`rounded-full border px-2 py-1 text-[11px] ${
+                      index < currentFlowStep
+                        ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+                        : index === currentFlowStep
+                          ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                          : "border-white/10 bg-black/20 text-zinc-400"
+                    }`}
+                  >
+                    {index + 1}. {step}
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+              <p className="text-sm font-semibold text-cyan-100">Buyer Flow</p>
+              <p className="mt-1 text-xs text-cyan-200/80">
+                Search to ranked results to match score to recommendations to supplier profile to verify certificate
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {buyerSteps.map((step, index) => (
+                  <span
+                    key={step}
+                    className={`rounded-full border px-2 py-1 text-[11px] ${
+                      index < buyerCurrentStep
+                        ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+                        : index === buyerCurrentStep
+                          ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                          : "border-white/10 bg-black/20 text-zinc-400"
+                    }`}
+                  >
+                    {index + 1}. {step}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+                  value={buyerQuery}
+                  onChange={(e) => setBuyerQuery(e.target.value)}
+                  placeholder="e.g. Women-owned textile suppliers in India"
+                />
+                <button
+                  type="button"
+                  onClick={() => void runBuyerSearch()}
+                  className="rounded-lg border border-cyan-500/40 px-4 py-2 text-sm font-medium text-cyan-200 hover:bg-cyan-500/10"
+                >
+                  {buyerLoading ? "Searching..." : "Run buyer search"}
+                </button>
+              </div>
+
+              {!!buyerRows.length && (
+                <div className="mt-3 space-y-2 text-xs">
+                  <p className="text-zinc-400">Ranked results (certification-priority aware)</p>
+                  {buyerRows.slice(0, 3).map((row) => (
+                    <button
+                      key={row.supplier.id}
+                      type="button"
+                      onClick={() => setBuyerSelectedId(row.supplier.id)}
+                      className={`w-full rounded-md border px-3 py-2 text-left ${
+                        buyerSelectedId === row.supplier.id
+                          ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-100"
+                          : "border-white/10 bg-black/20 text-zinc-300"
+                      }`}
+                    >
+                      {row.supplier.business_name} · Match {row.match.matchScore}% · {row.supplier.cert_type}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {!!buyerRecommendations.length && (
+                <div className="mt-3 text-xs text-zinc-300">
+                  <p className="text-zinc-400">Top 3 recommendations:</p>
+                  <p className="mt-1">
+                    {buyerRecommendations
+                      .slice(0, 3)
+                      .map((row) => row.supplier.business_name)
+                      .join(", ")}
+                  </p>
+                </div>
+              )}
+
+              {buyerSelected && (
+                <div className="mt-3 rounded-md border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
+                  <p className="font-medium text-zinc-100">{buyerSelected.supplier.business_name}</p>
+                  <p>
+                    Trust {buyerSelected.profile.trustScore} · Risk {buyerSelected.profile.riskLevel} · Last verified{" "}
+                    {buyerSelected.profile.lastVerified || "N/A"}
+                  </p>
+                  <p className="mt-1 text-zinc-400">Match rationale: {buyerSelected.match.rankReason}</p>
+                  {cert ? (
+                    <a
+                      href={`/verify/${cert.id}`}
+                      className="mt-2 inline-block text-cyan-300 hover:underline"
+                    >
+                      Verify certificate for current supplier session
+                    </a>
+                  ) : (
+                    <p className="mt-2 text-zinc-500">Issue a certificate to complete verify step.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Certification workspace</h2>
+              <p className="mt-1 text-xs text-zinc-400">
+                {workflow
+                  ? `${trustLevelLabel(workflow.trustLevel)} · Stage: ${workflow.certificationStage}`
+                  : "Level 1: Self-Declared · Stage: intake"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="rounded-md border border-white/15 bg-black/20 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
+              {showAdvanced ? "Hide Advanced Controls" : "Show Advanced Controls"}
+            </button>
+          </div>
+          {isSelfPath && (
+            <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+              <p className="font-semibold">Upgrade option</p>
+              <p className="mt-1">Upgrade to Digital Certification for higher visibility.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setRegistration((prev) => ({ ...prev, cert_type: "digital" }));
+                  void setCertificationType("digital");
+                }}
+                className="mt-2 rounded border border-cyan-500/50 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10"
+              >
+                Upgrade to Digital Certification
+              </button>
+            </div>
+          )}
+
+          {!showAdvanced ? (
+            <p className="mt-3 text-xs text-zinc-500">
+              Advanced questionnaire, compliance checks, and trust report generation are available in this workspace.
+            </p>
+          ) : null}
+
+          {showAdvanced && (
+            <>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <label className="text-xs text-zinc-300">
+              Ownership control
+              <input
+                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                value={questionnaireAnswers.ownership_control ?? ""}
+                onChange={(e) =>
+                  setQuestionnaireAnswers((prev) => ({ ...prev, ownership_control: e.target.value }))
+                }
+                placeholder="Who controls ownership decisions?"
+              />
+            </label>
+            <label className="text-xs text-zinc-300">
+              Operational involvement
+              <input
+                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                value={questionnaireAnswers.operational_involvement ?? ""}
+                onChange={(e) =>
+                  setQuestionnaireAnswers((prev) => ({
+                    ...prev,
+                    operational_involvement: e.target.value,
+                  }))
+                }
+                placeholder="Describe day-to-day involvement"
+              />
+            </label>
+            <label className="text-xs text-zinc-300">
+              Years in business
+              <input
+                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                value={questionnaireAnswers.years_in_business ?? ""}
+                onChange={(e) =>
+                  setQuestionnaireAnswers((prev) => ({ ...prev, years_in_business: e.target.value }))
+                }
+              />
+            </label>
+            <label className="text-xs text-zinc-300">
+              Clients worked with
+              <input
+                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                value={questionnaireAnswers.clients_worked_with ?? ""}
+                onChange={(e) =>
+                  setQuestionnaireAnswers((prev) => ({ ...prev, clients_worked_with: e.target.value }))
+                }
+              />
+            </label>
+            <label className="text-xs text-zinc-300 sm:col-span-2">
+              Product scale
+              <input
+                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                value={questionnaireAnswers.product_scale ?? ""}
+                onChange={(e) =>
+                  setQuestionnaireAnswers((prev) => ({ ...prev, product_scale: e.target.value }))
+                }
+                placeholder="Current delivery scale/capacity"
+              />
+            </label>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void saveQuestionnaire()}
+              className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+            >
+              Save questionnaire
+            </button>
+            <button
+              type="button"
+              onClick={() => void runCompliance()}
+              className="rounded border border-emerald-500/50 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-500/10"
+            >
+              Run compliance check
+            </button>
+            <button
+              type="button"
+              onClick={() => void createTrustReport()}
+              className="rounded border border-cyan-500/50 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10"
+            >
+              Generate WeConnect Trust Report
+            </button>
+          </div>
+
+          {compliance && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
+              <p>Sanctions Check: {compliance.sanctionsCheck === "clear" ? "✅ clear" : compliance.sanctionsCheck}</p>
+              <p>
+                Entity Verification:{" "}
+                {compliance.entityVerification === "verified" ? "✅ verified" : compliance.entityVerification}
+              </p>
+              <p>
+                Risk Score: {compliance.riskScore}/100 ({compliance.riskLevel})
+              </p>
+            </div>
+          )}
+
+          {trustReport && (
+            <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+              <p className="font-semibold">WeConnect Trust Report</p>
+              <p>Trust Score: {trustReport.trustScore}/100</p>
+              <p>Risk Level: {trustReport.riskLevel}</p>
+              <p>Ownership Verified: {trustReport.ownershipVerified ? "✅" : "⚠"}</p>
+              <p>Identity Match: {trustReport.identityMatch}</p>
+              <p>Document Consistency: {trustReport.documentConsistency}</p>
+            </div>
+          )}
+
+          {workflow?.governance && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+              <p>Roles: {workflow.governance.roles.join(", ")}</p>
+              <p>
+                Lifecycle: {workflow.governance.validTill ? `Valid till ${new Date(workflow.governance.validTill).toLocaleDateString()}` : "Validity pending"} ·{" "}
+                {workflow.governance.continuouslyMonitored ? "Continuously monitored" : "Monitoring paused"}
+              </p>
+              {workflow.governance.notifications.slice(0, 3).map((n, idx) => (
+                <p key={`${n}-${idx}`}>- {n}</p>
+              ))}
+            </div>
+          )}
+          {workflow?.governance?.auditTrail?.length ? (
+            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
+              <p className="font-semibold text-zinc-100">Audit trail timeline</p>
+              <p className="mt-1 text-zinc-500">Verification steps completed:</p>
+              <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
+                {workflow.governance.auditTrail
+                  .slice()
+                  .reverse()
+                  .map((entry, idx) => (
+                    <p key={`${entry}-${idx}`} className="rounded border border-white/5 bg-white/[0.02] px-2 py-1">
+                      {entry}
+                    </p>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+            </>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="text-lg font-semibold text-white">Intake details and prefill review</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Proactive intake is at the top (Step 1). Use this section to review and refine discovered data.
+          </p>
+          <p className="mt-1 text-xs text-cyan-200/90">“We’ve pre-filled your business details. Please confirm.”</p>
           {match && (
             <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-sm">
               <p className="font-medium text-emerald-200">{match.companyName}</p>
@@ -762,12 +1590,36 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   {typeof match.ownerPrefillPct === "number" ? `${match.ownerPrefillPct}%` : "Unknown"}
                 </span>
               </p>
+              <p className="mt-1 text-zinc-300">
+                Ownership source:{" "}
+                <span className="text-cyan-300">{ownership?.sourceType ?? "web_inferred"}</span> · Confidence:{" "}
+                <span className="text-cyan-200">{ownershipEvidenceConfidence}%</span>
+                {ownership?.value !== undefined ? (
+                  <>
+                    {" "}
+                    · Reported stake: <span className="text-cyan-200">{ownership.value}%</span>
+                  </>
+                ) : null}
+              </p>
+              {ownershipBreakdown?.ownership_total_promoter_pct !== undefined ||
+              ownershipBreakdown?.ownership_total_public_pct !== undefined ? (
+                <p className="mt-1 text-zinc-300">
+                  Promoter/Public:{" "}
+                  <span className="text-cyan-200">
+                    {ownershipBreakdown.ownership_total_promoter_pct ?? "NA"}% /{" "}
+                    {ownershipBreakdown.ownership_total_public_pct ?? "NA"}%
+                  </span>
+                  {ownershipBreakdown.exchange && ownershipBreakdown.symbol ? (
+                    <> · {ownershipBreakdown.exchange}:{ownershipBreakdown.symbol}</>
+                  ) : null}
+                </p>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void startVerification()}
                 className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
               >
-                Start 60-second verification
+                {isSelfPath ? "Continue Self-Certification" : "Start 60-second verification"}
               </button>
               {needsCandidateConfirmation ? (
                 <p className="mt-2 text-xs text-amber-300">
@@ -853,20 +1705,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     }
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  Cert type
-                  <select
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
-                    value={registration.cert_type}
-                    onChange={(e) =>
-                      setRegistration((prev) => ({ ...prev, cert_type: e.target.value }))
-                    }
-                  >
-                    <option value="">Select certification type</option>
-                    <option value="self">Self certification</option>
-                    <option value="digital">Digital certification</option>
-                  </select>
-                </label>
+
                 <label className="text-xs text-zinc-300">
                   Primary owner % (must total 100)
                   <input
@@ -887,6 +1726,18 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     }
                   />
                 </label>
+                <label className="text-xs text-zinc-300">
+                  Company type
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    value={registration.company_type}
+                    onChange={(e) =>
+                      setRegistration((prev) => ({ ...prev, company_type: e.target.value }))
+                    }
+                    placeholder="e.g. Private Limited, LLP, Partnership Firm"
+                  />
+                </label>
+
               </div>
               <label className="mt-2 block text-xs text-zinc-300">
                 Business description (min 30 chars)
@@ -923,6 +1774,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                 {fieldEvidence.business_description ? (
                   <p>Description evidence: {fieldEvidence.business_description}</p>
                 ) : null}
+                {fieldEvidence.company_type ? <p>Company type evidence: {fieldEvidence.company_type}</p> : null}
+
               </div>
               {!!discoverCandidates.length && (
                 <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2 text-[11px] text-zinc-400">
@@ -970,13 +1823,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               {anchorOperatorHint ? (
                 <p className="mt-2 text-xs text-amber-300">Anchor action: {anchorOperatorHint}</p>
               ) : null}
-              <button
-                type="button"
-                onClick={() => void saveRegistration(registration, paid)}
-                className="mt-3 rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs text-cyan-200 hover:bg-cyan-500/10"
-              >
-                Save prefill edits
-              </button>
             </div>
           )}
         </section>
@@ -1007,6 +1853,50 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             <span className="text-xs text-zinc-500">Stage: {stage}</span>
           </div>
 
+          {stage === "doc_upload" && (
+            <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-cyan-500/30 p-6">
+              <p className="text-sm font-medium text-cyan-200">Upload Business Registration Document</p>
+              <p className="mt-1 text-xs text-zinc-400">Please provide up to 3 files (PDF/Word) for automated extraction.</p>
+              {!!selectedDocuments.length && (
+                <div className="mt-3 w-full max-w-xl rounded-md border border-white/10 bg-black/30 p-3 text-xs text-zinc-300">
+                  <p className="font-medium text-zinc-100">Selected files ({selectedDocuments.length}/3)</p>
+                  <ul className="mt-1 space-y-1">
+                    {selectedDocuments.map((file) => (
+                      <li key={`${file.name}-${file.size}-${file.lastModified}`} className="truncate">
+                        {file.name}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDocuments([])}
+                    className="mt-2 rounded border border-white/15 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
+                    disabled={isVerifyingDocs}
+                  >
+                    Clear selected files
+                  </button>
+                </div>
+              )}
+              {isVerifyingDocs ? (
+                <div className="mt-4 flex items-center gap-2 text-sm text-cyan-400">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
+                  Verifying documents with AI...
+                </div>
+              ) : (
+                <label className="mt-4 cursor-pointer rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500">
+                  <span>Add Files (Max 3)</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    multiple
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleFileUpload}
+                  />
+                </label>
+              )}
+            </div>
+          )}
+
           {stage === "vision_id" && (
             <div className="mt-6">
               <WebcamCapture
@@ -1025,14 +1915,23 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <h2 className="text-lg font-semibold text-white">Payment and final gate</h2>
           <p className="mt-1 text-xs text-zinc-400">
-            Demo payment required before complete registration can anchor.
+            Payment semantics (mocked): $100 hold → capture on approval → refund on rejection.
           </p>
+          <p className="mt-1 text-xs text-cyan-200">
+            Current payment state: {workflow?.payment.state ?? "not_started"}
+          </p>
+          {isSelfPath && (
+            <p className="mt-2 text-xs text-emerald-300">
+              Self-certification path selected: payment hold is skipped for this path.
+            </p>
+          )}
           {!paymentUnlocked && (
             <p className="mt-2 text-xs text-amber-300">
               Payment unlocks after voice + vision steps are completed.
             </p>
           )}
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {!isSelfPath && (
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
             <input
               className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
               placeholder="Card number"
@@ -1055,7 +1954,9 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               disabled={!paymentUnlocked}
             />
           </div>
-          <label className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
+          )}
+          {!isSelfPath && (
+            <label className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
             <input
               type="checkbox"
               checked={paid}
@@ -1064,11 +1965,23 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                 const nextPaid = e.target.checked;
                 setPaid(nextPaid);
                 void saveRegistration(registration, nextPaid);
+                if (sessionId) {
+                  void fetch("/api/workflow/transition", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      sessionId,
+                      action: "payment_transition",
+                      paymentState: nextPaid ? "hold_placed" : "not_started",
+                    }),
+                  }).then(() => void refreshSession(sessionId));
+                }
               }}
             />
             Mark payment as verified (demo)
           </label>
-          {!mockCardValid && (
+          )}
+          {!isSelfPath && !mockCardValid && (
             <p className="mt-2 text-xs text-zinc-500">Enter valid mock card details to enable payment.</p>
           )}
           {!!anchorBlockers.length && (

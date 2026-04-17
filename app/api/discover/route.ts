@@ -5,6 +5,11 @@ import { searchCompanyOnWeb } from "@/lib/web-search";
 import { enrichCompanyCandidate } from "@/lib/enrichment";
 import { resolveCompanyCodes } from "@/lib/code-classification";
 import {
+  resolveIndiaOwnershipFromWeb,
+  toOwnershipSummary,
+  type OwnershipSummary,
+} from "@/lib/india-ownership";
+import {
   appendTerminal,
   getSession,
   pushMessage,
@@ -15,6 +20,7 @@ import {
   setSessionRegistration,
   setSessionStage,
 } from "@/lib/session-store";
+import { patchDomainState, pushGovernanceNotification } from "@/lib/store/domain-store";
 
 export async function POST(req: Request) {
   const body = (await req.json()) as {
@@ -38,9 +44,9 @@ export async function POST(req: Request) {
 
   if (!company) {
     appendTerminal(sessionId, "[REGISTRY_SEARCH] NO_MATCH");
-    appendTerminal(sessionId, `[GOOGLE_SERP] QUERY="${query.slice(0, 80)} company" via=serpapi`);
+    appendTerminal(sessionId, `[WEB_SEARCH] QUERY="${query.slice(0, 80)}"`);
     let result: Awaited<ReturnType<typeof searchCompanyOnWeb>> = {
-      provider: "duckduckgo",
+      provider: "google_serpapi",
       candidates: [],
       fallbackReason: "SEARCH_NOT_RUN",
     };
@@ -50,14 +56,9 @@ export async function POST(req: Request) {
       appendTerminal(sessionId, "[WEB_SEARCH] ERROR");
     }
     const candidates = result.candidates;
-    if (result.provider === "duckduckgo") {
-      appendTerminal(
-        sessionId,
-        `[WEB_SEARCH_FALLBACK] provider=duckduckgo reason="${result.fallbackReason ?? "unknown"}"`,
-      );
-      appendTerminal(sessionId, `[WEB_SEARCH] QUERY="${query.slice(0, 80)} company"`);
-    } else {
-      appendTerminal(sessionId, "[GOOGLE_SERP] MATCH_SOURCE=serpapi");
+    appendTerminal(sessionId, `[WEB_SEARCH] MATCH_SOURCE=${result.provider}`);
+    if (result.fallbackReason) {
+      appendTerminal(sessionId, `[WEB_SEARCH] status="${result.fallbackReason}"`);
     }
     if (!candidates.length) {
       appendTerminal(sessionId, "[WEB_SEARCH] NO_MATCH");
@@ -80,6 +81,16 @@ export async function POST(req: Request) {
       query,
       candidates: topForClassification,
       enrichments: topEnrichments,
+    });
+    const exchangeOwnership = await resolveIndiaOwnershipFromWeb({
+      query,
+      selected: selectedCandidate,
+      candidates: topForClassification,
+    });
+    const ownership: OwnershipSummary = toOwnershipSummary(exchangeOwnership, {
+      sourceType: "web_inferred",
+      confidence: best.ownerName ? 35 : 20,
+      value: undefined,
     });
     const inferredJurisdiction = selectedCandidate.url ? "Web search result" : "Web source (unverified)";
     const dynamic = registerDynamicCompany({
@@ -105,7 +116,11 @@ export async function POST(req: Request) {
       sessionId,
       `[CLASSIFICATION] naics_source=${codeClassification.naics.sourceType} naics_conf=${codeClassification.naics.confidence} unspsc_source=${codeClassification.unspsc.sourceType} unspsc_conf=${codeClassification.unspsc.confidence}`,
     );
-    const enrichment = mapCompanyToPrefill(dynamic, "web", best, codeClassification);
+    appendTerminal(
+      sessionId,
+      `[OWNERSHIP] source=${ownership.sourceType} confidence=${ownership.confidence} symbol=${exchangeOwnership?.symbol ?? "na"} exchange=${exchangeOwnership?.exchange ?? "na"}`,
+    );
+    const enrichment = mapCompanyToPrefill(dynamic, "web", best, codeClassification, ownership);
     const countryRequiresConfirmation = enrichment.countryResolution.source !== "explicit";
     setSessionCompany(sessionId, dynamic.id);
     setSessionCandidate(sessionId, {
@@ -118,10 +133,20 @@ export async function POST(req: Request) {
       provider: result.provider,
       fallbackReason: result.fallbackReason,
       lowConfidence: Boolean(result.lowConfidence),
+      ownershipSourceType: ownership.sourceType,
+      ownershipConfidence: ownership.confidence,
     });
     setSessionRegistration(sessionId, enrichment.prefill);
     setSessionPaid(sessionId, false);
     setSessionStage(sessionId, "discovered");
+    patchDomainState(sessionId, {
+      trustLevel: "self_declared",
+      certificationType: "none",
+      certificationStage: "intake",
+      verificationStatus: "pending",
+      payment: { state: "not_started", amountUsd: 100 },
+    });
+    pushGovernanceNotification(sessionId, "AI prefill generated. Supplier is Level 1: Self-Declared");
     pushMessage(sessionId, {
       role: "system",
       content: `Web match: ${dynamic.companyName} (${dynamic.id})`,
@@ -144,6 +169,19 @@ export async function POST(req: Request) {
         ownershipFemalePct: null,
         ownerPrefillPct: enrichment.prefill.owner_details[0]?.ownershipPct ?? null,
       },
+      ownership,
+      ownershipBreakdown: exchangeOwnership
+        ? {
+            ownership_total_promoter_pct: exchangeOwnership.ownership_total_promoter_pct,
+            ownership_total_public_pct: exchangeOwnership.ownership_total_public_pct,
+            ownership_breakdown: exchangeOwnership.ownership_breakdown,
+            as_of_date: exchangeOwnership.as_of_date,
+            source_url: exchangeOwnership.source_url,
+            source_type: exchangeOwnership.source_type,
+            exchange: exchangeOwnership.exchange,
+            symbol: exchangeOwnership.symbol,
+          }
+        : undefined,
       candidates: candidates.map((c) => ({
         title: c.title,
         snippet: c.snippet,
@@ -156,6 +194,7 @@ export async function POST(req: Request) {
         country: enrichment.prefill.country,
         ownerName: best.ownerName,
         industryHint: best.industryHint,
+        companyType: best.companyType,
       },
       classificationSummary: {
         naics: {
@@ -168,7 +207,9 @@ export async function POST(req: Request) {
         },
       },
       selectedCandidateIndex: pickedIndex,
-      ownershipEvidenceConfidence: best.ownerName ? 35 : 0,
+      ownershipEvidenceConfidence: ownership.confidence,
+      ownershipSourceType: enrichment.ownershipSourceType,
+      ownershipConfidence: enrichment.ownershipConfidence,
       countryRequiresConfirmation,
       prefill: enrichment.prefill,
       fieldConfidence: enrichment.fieldConfidence,
@@ -204,7 +245,12 @@ export async function POST(req: Request) {
     candidates: [registryCandidate],
     enrichments: [best],
   });
-  const enrichment = mapCompanyToPrefill(company, "registry", best, codeClassification);
+  const ownership: OwnershipSummary = {
+    value: company.ownershipFemalePct,
+    sourceType: "registry_prefill",
+    confidence: 90,
+  };
+  const enrichment = mapCompanyToPrefill(company, "registry", best, codeClassification, ownership);
 
   setSessionCompany(sessionId, company.id);
   setSessionCandidate(sessionId, {
@@ -223,10 +269,20 @@ export async function POST(req: Request) {
     provider: "registry",
     fallbackReason: undefined,
     lowConfidence: false,
+    ownershipSourceType: ownership.sourceType,
+    ownershipConfidence: ownership.confidence,
   });
   setSessionRegistration(sessionId, enrichment.prefill);
   setSessionPaid(sessionId, false);
   setSessionStage(sessionId, "discovered");
+  patchDomainState(sessionId, {
+    trustLevel: "self_declared",
+    certificationType: "none",
+    certificationStage: "intake",
+    verificationStatus: "pending",
+    payment: { state: "not_started", amountUsd: 100 },
+  });
+  pushGovernanceNotification(sessionId, "Registry prefill generated. Supplier is Level 1: Self-Declared");
   pushMessage(sessionId, {
     role: "system",
     content: `Registry match: ${company.companyName} (${company.id})`,
@@ -249,13 +305,17 @@ export async function POST(req: Request) {
       ownershipFemalePct: company.ownershipFemalePct,
       ownerPrefillPct: enrichment.prefill.owner_details[0]?.ownershipPct ?? null,
     },
-    ownershipEvidenceConfidence: 90,
+    ownership,
+    ownershipEvidenceConfidence: ownership.confidence,
+    ownershipSourceType: enrichment.ownershipSourceType,
+    ownershipConfidence: enrichment.ownershipConfidence,
     countryRequiresConfirmation: false,
     enrichmentSummary: {
       legalName: best.legalName,
       country: enrichment.prefill.country,
       ownerName: best.ownerName,
       industryHint: best.industryHint,
+      companyType: best.companyType,
     },
     classificationSummary: {
       naics: {

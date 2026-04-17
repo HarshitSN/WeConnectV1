@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createSession, getSession } from "@/lib/session-store";
+import { getDomainState } from "@/lib/store/domain-store";
 
 export async function POST() {
   const s = createSession();
+  getDomainState(s.id);
   return NextResponse.json({
     sessionId: s.id,
     stage: s.stage,
@@ -20,6 +22,7 @@ export async function GET(req: Request) {
   if (!s) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
+  const workflow = getDomainState(id);
   return NextResponse.json({
     sessionId: s.id,
     stage: s.stage,
@@ -35,6 +38,7 @@ export async function GET(req: Request) {
     lastVision: s.lastVision,
     attestation: s.attestation,
     geminiFallbacks: s.geminiFallbacks ?? [],
+    workflow,
     updatedAt: s.updatedAt,
   });
 }
