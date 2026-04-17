@@ -121,14 +121,14 @@ type AnchorJson = {
   blockers?: string[];
   error?: string;
   reasonCode?:
-    | "config_invalid"
-    | "rpc_unreachable"
-    | "network_timeout"
-    | "insufficient_funds"
-    | "tx_reverted"
-    | "tx_rejected"
-    | "receipt_invalid"
-    | "unknown";
+  | "config_invalid"
+  | "rpc_unreachable"
+  | "network_timeout"
+  | "insufficient_funds"
+  | "tx_reverted"
+  | "tx_rejected"
+  | "receipt_invalid"
+  | "unknown";
   reasonDetail?: string;
   operatorHint?: string;
   anchorMode?: "real" | "demo";
@@ -148,6 +148,7 @@ type DiscoverJson = {
     legalName?: string;
     country?: string;
     ownerName?: string;
+    founderNames?: string[];
     industryHint?: string;
     companyType?: string;
   };
@@ -320,6 +321,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [classificationSummary, setClassificationSummary] = useState<
     DiscoverJson["classificationSummary"] | undefined
   >(undefined);
+  const [founderNames, setFounderNames] = useState<string[]>([]);
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
@@ -640,6 +642,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       Number(j.ownershipEvidenceConfidence ?? j.ownershipConfidence ?? j.ownership?.confidence ?? 0),
     );
     setClassificationSummary(j.classificationSummary);
+    setFounderNames(j.enrichmentSummary?.founderNames ?? []);
     setPaid(false);
     const missingFromPrefill = (j.missingRequired ?? [])
       .filter((f) => f !== "paid")
@@ -650,9 +653,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       : "";
     setAssistant(
       j.source === "web"
-        ? `We’ve pre-filled your business details. Please confirm. I found ${
-            j.match.companyName
-          } from live web search and prepared the draft.${missingLine}`
+        ? `We’ve pre-filled your business details. Please confirm. I found ${j.match.companyName
+        } from live web search and prepared the draft.${missingLine}`
         : `We’ve pre-filled your business details. Please confirm. I found ${j.match.companyName} in ${j.match.jurisdiction}.`,
     );
     if (j.source === "web") {
@@ -689,7 +691,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     if (!parsed.ok || !parsed.data?.assistantText) {
       setAssistant(
         parsed.errorMessage ??
-          "The verification service returned an error. Check the terminal or try again.",
+        "The verification service returned an error. Check the terminal or try again.",
       );
       return undefined;
     }
@@ -883,14 +885,14 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       const documents = await Promise.all(
         files.map(async (f) => {
           return new Promise<{ base64: string; mimeType: string }>((resolve, reject) => {
-             const reader = new FileReader();
-             reader.onload = (event) => {
-               const dataUrl = event.target?.result as string;
-               const base64 = dataUrl.split(",")[1];
-               resolve({ base64, mimeType: f.type });
-             };
-             reader.onerror = reject;
-             reader.readAsDataURL(f);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const dataUrl = event.target?.result as string;
+              const base64 = dataUrl.split(",")[1];
+              resolve({ base64, mimeType: f.type });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(f);
           });
         })
       );
@@ -925,7 +927,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           }
         }
       } else {
-         alert("Failed to verify documents dynamically.");
+        alert("Failed to verify documents dynamically.");
       }
     } catch (err) {
       console.warn("Document submission error:", err);
@@ -1161,7 +1163,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         )}
 
         <section className="rounded-2xl border border-white/10 bg-gradient-to-r from-zinc-900 to-zinc-950 p-4">
-          <p className="text-sm font-semibold text-zinc-100">Certification Journey</p>
+          <p className="text-sm font-semibold text-zinc-100">60 second certificate process</p>
           <p className="mt-1 text-xs text-zinc-400">
             Build trust from self-declared profile to digitally certified supplier.
           </p>
@@ -1219,11 +1221,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               onClick={() => {
                 void setCertificationType("self");
               }}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                isSelfPath
-                  ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
-                  : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
-              }`}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isSelfPath
+                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
+                : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
+                }`}
             >
               Self-Certified
             </button>
@@ -1232,11 +1233,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               onClick={() => {
                 void setCertificationType("digital");
               }}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                isDigitalPath
-                  ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                  : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
-              }`}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isDigitalPath
+                ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
+                }`}
             >
               Digital Certification
             </button>
@@ -1244,143 +1244,23 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         </section>
         <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
           <p className="text-sm font-semibold text-cyan-100">Guided Flow</p>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setJourneyMode("supplier")}
-              className={`rounded-md border px-3 py-1 text-xs ${
-                journeyMode === "supplier"
-                  ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                  : "border-white/10 bg-black/20 text-zinc-400"
-              }`}
-            >
-              Supplier Journey
-            </button>
-            <button
-              type="button"
-              onClick={() => setJourneyMode("buyer")}
-              className={`rounded-md border px-3 py-1 text-xs ${
-                journeyMode === "buyer"
-                  ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                  : "border-white/10 bg-black/20 text-zinc-400"
-              }`}
-            >
-              Buyer Journey
-            </button>
+          <p className="mt-3 text-sm text-cyan-50">{nextAction.title}</p>
+          <p className="mt-1 text-xs text-cyan-200/80">{nextAction.detail}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {flowSteps.map((step, index) => (
+              <span
+                key={step}
+                className={`rounded-full border px-2 py-1 text-[11px] ${index < currentFlowStep
+                  ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+                  : index === currentFlowStep
+                    ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
+                    : "border-white/10 bg-black/20 text-zinc-400"
+                  }`}
+              >
+                {index + 1}. {step}
+              </span>
+            ))}
           </div>
-          {journeyMode === "supplier" ? (
-            <>
-              <p className="mt-3 text-sm text-cyan-50">{nextAction.title}</p>
-              <p className="mt-1 text-xs text-cyan-200/80">{nextAction.detail}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {flowSteps.map((step, index) => (
-                  <span
-                    key={step}
-                    className={`rounded-full border px-2 py-1 text-[11px] ${
-                      index < currentFlowStep
-                        ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
-                        : index === currentFlowStep
-                          ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                          : "border-white/10 bg-black/20 text-zinc-400"
-                    }`}
-                  >
-                    {index + 1}. {step}
-                  </span>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
-              <p className="text-sm font-semibold text-cyan-100">Buyer Flow</p>
-              <p className="mt-1 text-xs text-cyan-200/80">
-                Search to ranked results to match score to recommendations to supplier profile to verify certificate
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {buyerSteps.map((step, index) => (
-                  <span
-                    key={step}
-                    className={`rounded-full border px-2 py-1 text-[11px] ${
-                      index < buyerCurrentStep
-                        ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
-                        : index === buyerCurrentStep
-                          ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                          : "border-white/10 bg-black/20 text-zinc-400"
-                    }`}
-                  >
-                    {index + 1}. {step}
-                  </span>
-                ))}
-              </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <input
-                  className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
-                  value={buyerQuery}
-                  onChange={(e) => setBuyerQuery(e.target.value)}
-                  placeholder="e.g. Women-owned textile suppliers in India"
-                />
-                <button
-                  type="button"
-                  onClick={() => void runBuyerSearch()}
-                  className="rounded-lg border border-cyan-500/40 px-4 py-2 text-sm font-medium text-cyan-200 hover:bg-cyan-500/10"
-                >
-                  {buyerLoading ? "Searching..." : "Run buyer search"}
-                </button>
-              </div>
-
-              {!!buyerRows.length && (
-                <div className="mt-3 space-y-2 text-xs">
-                  <p className="text-zinc-400">Ranked results (certification-priority aware)</p>
-                  {buyerRows.slice(0, 3).map((row) => (
-                    <button
-                      key={row.supplier.id}
-                      type="button"
-                      onClick={() => setBuyerSelectedId(row.supplier.id)}
-                      className={`w-full rounded-md border px-3 py-2 text-left ${
-                        buyerSelectedId === row.supplier.id
-                          ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-100"
-                          : "border-white/10 bg-black/20 text-zinc-300"
-                      }`}
-                    >
-                      {row.supplier.business_name} · Match {row.match.matchScore}% · {row.supplier.cert_type}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {!!buyerRecommendations.length && (
-                <div className="mt-3 text-xs text-zinc-300">
-                  <p className="text-zinc-400">Top 3 recommendations:</p>
-                  <p className="mt-1">
-                    {buyerRecommendations
-                      .slice(0, 3)
-                      .map((row) => row.supplier.business_name)
-                      .join(", ")}
-                  </p>
-                </div>
-              )}
-
-              {buyerSelected && (
-                <div className="mt-3 rounded-md border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
-                  <p className="font-medium text-zinc-100">{buyerSelected.supplier.business_name}</p>
-                  <p>
-                    Trust {buyerSelected.profile.trustScore} · Risk {buyerSelected.profile.riskLevel} · Last verified{" "}
-                    {buyerSelected.profile.lastVerified || "N/A"}
-                  </p>
-                  <p className="mt-1 text-zinc-400">Match rationale: {buyerSelected.match.rankReason}</p>
-                  {cert ? (
-                    <a
-                      href={`/verify/${cert.id}`}
-                      className="mt-2 inline-block text-cyan-300 hover:underline"
-                    >
-                      Verify certificate for current supplier session
-                    </a>
-                  ) : (
-                    <p className="mt-2 text-zinc-500">Issue a certificate to complete verify step.</p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </section>
 
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
@@ -1426,141 +1306,141 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
 
           {showAdvanced && (
             <>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <label className="text-xs text-zinc-300">
-              Ownership control
-              <input
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
-                value={questionnaireAnswers.ownership_control ?? ""}
-                onChange={(e) =>
-                  setQuestionnaireAnswers((prev) => ({ ...prev, ownership_control: e.target.value }))
-                }
-                placeholder="Who controls ownership decisions?"
-              />
-            </label>
-            <label className="text-xs text-zinc-300">
-              Operational involvement
-              <input
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
-                value={questionnaireAnswers.operational_involvement ?? ""}
-                onChange={(e) =>
-                  setQuestionnaireAnswers((prev) => ({
-                    ...prev,
-                    operational_involvement: e.target.value,
-                  }))
-                }
-                placeholder="Describe day-to-day involvement"
-              />
-            </label>
-            <label className="text-xs text-zinc-300">
-              Years in business
-              <input
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
-                value={questionnaireAnswers.years_in_business ?? ""}
-                onChange={(e) =>
-                  setQuestionnaireAnswers((prev) => ({ ...prev, years_in_business: e.target.value }))
-                }
-              />
-            </label>
-            <label className="text-xs text-zinc-300">
-              Clients worked with
-              <input
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
-                value={questionnaireAnswers.clients_worked_with ?? ""}
-                onChange={(e) =>
-                  setQuestionnaireAnswers((prev) => ({ ...prev, clients_worked_with: e.target.value }))
-                }
-              />
-            </label>
-            <label className="text-xs text-zinc-300 sm:col-span-2">
-              Product scale
-              <input
-                className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
-                value={questionnaireAnswers.product_scale ?? ""}
-                onChange={(e) =>
-                  setQuestionnaireAnswers((prev) => ({ ...prev, product_scale: e.target.value }))
-                }
-                placeholder="Current delivery scale/capacity"
-              />
-            </label>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void saveQuestionnaire()}
-              className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-            >
-              Save questionnaire
-            </button>
-            <button
-              type="button"
-              onClick={() => void runCompliance()}
-              className="rounded border border-emerald-500/50 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-500/10"
-            >
-              Run compliance check
-            </button>
-            <button
-              type="button"
-              onClick={() => void createTrustReport()}
-              className="rounded border border-cyan-500/50 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10"
-            >
-              Generate WeConnect Trust Report
-            </button>
-          </div>
-
-          {compliance && (
-            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
-              <p>Sanctions Check: {compliance.sanctionsCheck === "clear" ? "✅ clear" : compliance.sanctionsCheck}</p>
-              <p>
-                Entity Verification:{" "}
-                {compliance.entityVerification === "verified" ? "✅ verified" : compliance.entityVerification}
-              </p>
-              <p>
-                Risk Score: {compliance.riskScore}/100 ({compliance.riskLevel})
-              </p>
-            </div>
-          )}
-
-          {trustReport && (
-            <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100">
-              <p className="font-semibold">WeConnect Trust Report</p>
-              <p>Trust Score: {trustReport.trustScore}/100</p>
-              <p>Risk Level: {trustReport.riskLevel}</p>
-              <p>Ownership Verified: {trustReport.ownershipVerified ? "✅" : "⚠"}</p>
-              <p>Identity Match: {trustReport.identityMatch}</p>
-              <p>Document Consistency: {trustReport.documentConsistency}</p>
-            </div>
-          )}
-
-          {workflow?.governance && (
-            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              <p>Roles: {workflow.governance.roles.join(", ")}</p>
-              <p>
-                Lifecycle: {workflow.governance.validTill ? `Valid till ${new Date(workflow.governance.validTill).toLocaleDateString()}` : "Validity pending"} ·{" "}
-                {workflow.governance.continuouslyMonitored ? "Continuously monitored" : "Monitoring paused"}
-              </p>
-              {workflow.governance.notifications.slice(0, 3).map((n, idx) => (
-                <p key={`${n}-${idx}`}>- {n}</p>
-              ))}
-            </div>
-          )}
-          {workflow?.governance?.auditTrail?.length ? (
-            <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
-              <p className="font-semibold text-zinc-100">Audit trail timeline</p>
-              <p className="mt-1 text-zinc-500">Verification steps completed:</p>
-              <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
-                {workflow.governance.auditTrail
-                  .slice()
-                  .reverse()
-                  .map((entry, idx) => (
-                    <p key={`${entry}-${idx}`} className="rounded border border-white/5 bg-white/[0.02] px-2 py-1">
-                      {entry}
-                    </p>
-                  ))}
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <label className="text-xs text-zinc-300">
+                  Ownership control
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    value={questionnaireAnswers.ownership_control ?? ""}
+                    onChange={(e) =>
+                      setQuestionnaireAnswers((prev) => ({ ...prev, ownership_control: e.target.value }))
+                    }
+                    placeholder="Who controls ownership decisions?"
+                  />
+                </label>
+                <label className="text-xs text-zinc-300">
+                  Operational involvement
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    value={questionnaireAnswers.operational_involvement ?? ""}
+                    onChange={(e) =>
+                      setQuestionnaireAnswers((prev) => ({
+                        ...prev,
+                        operational_involvement: e.target.value,
+                      }))
+                    }
+                    placeholder="Describe day-to-day involvement"
+                  />
+                </label>
+                <label className="text-xs text-zinc-300">
+                  Years in business
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    value={questionnaireAnswers.years_in_business ?? ""}
+                    onChange={(e) =>
+                      setQuestionnaireAnswers((prev) => ({ ...prev, years_in_business: e.target.value }))
+                    }
+                  />
+                </label>
+                <label className="text-xs text-zinc-300">
+                  Clients worked with
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    value={questionnaireAnswers.clients_worked_with ?? ""}
+                    onChange={(e) =>
+                      setQuestionnaireAnswers((prev) => ({ ...prev, clients_worked_with: e.target.value }))
+                    }
+                  />
+                </label>
+                <label className="text-xs text-zinc-300 sm:col-span-2">
+                  Product scale
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    value={questionnaireAnswers.product_scale ?? ""}
+                    onChange={(e) =>
+                      setQuestionnaireAnswers((prev) => ({ ...prev, product_scale: e.target.value }))
+                    }
+                    placeholder="Current delivery scale/capacity"
+                  />
+                </label>
               </div>
-            </div>
-          ) : null}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void saveQuestionnaire()}
+                  className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                >
+                  Save questionnaire
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runCompliance()}
+                  className="rounded border border-emerald-500/50 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-500/10"
+                >
+                  Run compliance check
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void createTrustReport()}
+                  className="rounded border border-cyan-500/50 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10"
+                >
+                  Generate WeConnect Trust Report
+                </button>
+              </div>
+
+              {compliance && (
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
+                  <p>Sanctions Check: {compliance.sanctionsCheck === "clear" ? "✅ clear" : compliance.sanctionsCheck}</p>
+                  <p>
+                    Entity Verification:{" "}
+                    {compliance.entityVerification === "verified" ? "✅ verified" : compliance.entityVerification}
+                  </p>
+                  <p>
+                    Risk Score: {compliance.riskScore}/100 ({compliance.riskLevel})
+                  </p>
+                </div>
+              )}
+
+              {trustReport && (
+                <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+                  <p className="font-semibold">WeConnect Trust Report</p>
+                  <p>Trust Score: {trustReport.trustScore}/100</p>
+                  <p>Risk Level: {trustReport.riskLevel}</p>
+                  <p>Ownership Verified: {trustReport.ownershipVerified ? "✅" : "⚠"}</p>
+                  <p>Identity Match: {trustReport.identityMatch}</p>
+                  <p>Document Consistency: {trustReport.documentConsistency}</p>
+                </div>
+              )}
+
+              {workflow?.governance && (
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                  <p>Roles: {workflow.governance.roles.join(", ")}</p>
+                  <p>
+                    Lifecycle: {workflow.governance.validTill ? `Valid till ${new Date(workflow.governance.validTill).toLocaleDateString()}` : "Validity pending"} ·{" "}
+                    {workflow.governance.continuouslyMonitored ? "Continuously monitored" : "Monitoring paused"}
+                  </p>
+                  {workflow.governance.notifications.slice(0, 3).map((n, idx) => (
+                    <p key={`${n}-${idx}`}>- {n}</p>
+                  ))}
+                </div>
+              )}
+              {workflow?.governance?.auditTrail?.length ? (
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
+                  <p className="font-semibold text-zinc-100">Audit trail timeline</p>
+                  <p className="mt-1 text-zinc-500">Verification steps completed:</p>
+                  <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
+                    {workflow.governance.auditTrail
+                      .slice()
+                      .reverse()
+                      .map((entry, idx) => (
+                        <p key={`${entry}-${idx}`} className="rounded border border-white/5 bg-white/[0.02] px-2 py-1">
+                          {entry}
+                        </p>
+                      ))}
+                  </div>
+                </div>
+              ) : null}
             </>
           )}
         </section>
@@ -1602,7 +1482,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                 ) : null}
               </p>
               {ownershipBreakdown?.ownership_total_promoter_pct !== undefined ||
-              ownershipBreakdown?.ownership_total_public_pct !== undefined ? (
+                ownershipBreakdown?.ownership_total_public_pct !== undefined ? (
                 <p className="mt-1 text-zinc-300">
                   Promoter/Public:{" "}
                   <span className="text-cyan-200">
@@ -1707,7 +1587,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                 </label>
 
                 <label className="text-xs text-zinc-300">
-                  Primary owner % (must total 100)
+                  Female owned %
                   <input
                     type="number"
                     className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
@@ -1737,6 +1617,22 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     placeholder="e.g. Private Limited, LLP, Partnership Firm"
                   />
                 </label>
+
+                {founderNames.length > 0 && (
+                  <div className="text-xs text-zinc-300">
+                    <span className="text-zinc-400">Founders</span>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {founderNames.map((name) => (
+                        <span
+                          key={name}
+                          className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-200"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               </div>
               <label className="mt-2 block text-xs text-zinc-300">
@@ -1932,54 +1828,54 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
           {!isSelfPath && (
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            <input
-              className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
-              placeholder="Card number"
-              value={cardNumber}
-              onChange={(e) => setCardNumber(e.target.value)}
-              disabled={!paymentUnlocked}
-            />
-            <input
-              className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
-              placeholder="MM/YY"
-              value={cardExpiry}
-              onChange={(e) => setCardExpiry(e.target.value)}
-              disabled={!paymentUnlocked}
-            />
-            <input
-              className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
-              placeholder="CVV"
-              value={cardCvv}
-              onChange={(e) => setCardCvv(e.target.value)}
-              disabled={!paymentUnlocked}
-            />
-          </div>
+              <input
+                className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                placeholder="Card number"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+                disabled={!paymentUnlocked}
+              />
+              <input
+                className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                placeholder="MM/YY"
+                value={cardExpiry}
+                onChange={(e) => setCardExpiry(e.target.value)}
+                disabled={!paymentUnlocked}
+              />
+              <input
+                className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
+                placeholder="CVV"
+                value={cardCvv}
+                onChange={(e) => setCardCvv(e.target.value)}
+                disabled={!paymentUnlocked}
+              />
+            </div>
           )}
           {!isSelfPath && (
             <label className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              checked={paid}
-              disabled={!paymentUnlocked || !mockCardValid}
-              onChange={(e) => {
-                const nextPaid = e.target.checked;
-                setPaid(nextPaid);
-                void saveRegistration(registration, nextPaid);
-                if (sessionId) {
-                  void fetch("/api/workflow/transition", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      sessionId,
-                      action: "payment_transition",
-                      paymentState: nextPaid ? "hold_placed" : "not_started",
-                    }),
-                  }).then(() => void refreshSession(sessionId));
-                }
-              }}
-            />
-            Mark payment as verified (demo)
-          </label>
+              <input
+                type="checkbox"
+                checked={paid}
+                disabled={!paymentUnlocked || !mockCardValid}
+                onChange={(e) => {
+                  const nextPaid = e.target.checked;
+                  setPaid(nextPaid);
+                  void saveRegistration(registration, nextPaid);
+                  if (sessionId) {
+                    void fetch("/api/workflow/transition", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        sessionId,
+                        action: "payment_transition",
+                        paymentState: nextPaid ? "hold_placed" : "not_started",
+                      }),
+                    }).then(() => void refreshSession(sessionId));
+                  }
+                }}
+              />
+              Mark payment as verified (demo)
+            </label>
           )}
           {!isSelfPath && !mockCardValid && (
             <p className="mt-2 text-xs text-zinc-500">Enter valid mock card details to enable payment.</p>

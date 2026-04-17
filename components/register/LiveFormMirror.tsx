@@ -129,9 +129,12 @@ export default function LiveFormMirror({
           {skipTag("business_name")}
         </FlashWrapper>
         <FlashWrapper field="women_owned" flashKeys={flashKeys}>
-          <div className="flex gap-2">
-            <button onClick={() => set("women_owned", true)} className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.women_owned === true ? "border-brand-blue bg-blue-50 text-brand-blue" : "border-gray-200")}>Yes, 51%+ women owned</button>
-            <button onClick={() => set("women_owned", false)} className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.women_owned === false ? "border-red-300 bg-red-50 text-red-600" : "border-gray-200")}>No</button>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-gray-600">Is it 51% owned by women?</p>
+            <div className="flex gap-2">
+              <button onClick={() => set("women_owned", true)} className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.women_owned === true ? "border-brand-blue bg-blue-50 text-brand-blue" : "border-gray-200")}>Yes, 51%+ women owned</button>
+              <button onClick={() => set("women_owned", false)} className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all", answers.women_owned === false ? "border-red-300 bg-red-50 text-red-600" : "border-gray-200")}>No</button>
+            </div>
           </div>
         </FlashWrapper>
       </div>

@@ -5,6 +5,7 @@ export type EnrichmentSummary = {
   country?: string;
   countrySource?: "explicit_phrase" | "signal_domain_tld" | "signal_us_cues";
   ownerName?: string;
+  founderNames?: string[];
   industryHint?: string;
   naicsCodes?: string[];
   unspscCodes?: string[];
@@ -170,6 +171,50 @@ function extractCompanyType(text: string): string | undefined {
   return undefined;
 }
 
+function extractFounderNames(text: string): string[] {
+  const names = new Set<string>();
+
+  // Pattern: "Founded by Name1, Name2, and Name3" or "Founded by Name1 and Name2"
+  const foundedByMatch = text.match(
+    /(?:founded|co-founded|started)\s+by\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}(?:(?:\s*,\s*|\s+and\s+)[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})*)/i,
+  );
+  if (foundedByMatch?.[1]) {
+    const raw = foundedByMatch[1]
+      .replace(/\s+and\s+/gi, ",")
+      .split(",")
+      .map((n) => n.trim())
+      .filter((n) => n.length >= 3 && /^[A-Z]/i.test(n));
+    for (const n of raw) names.add(n);
+  }
+
+  // Pattern: "Founders: Name1, Name2" or "Co-founders: Name1 & Name2"
+  const foundersLabelMatch = text.match(
+    /(?:founders?|co-founders?)\s*[:\-–]\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}(?:(?:\s*[,&]\s*|\s+and\s+)[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})*)/i,
+  );
+  if (foundersLabelMatch?.[1]) {
+    const raw = foundersLabelMatch[1]
+      .replace(/\s*[&]\s*/g, ",")
+      .replace(/\s+and\s+/gi, ",")
+      .split(",")
+      .map((n) => n.trim())
+      .filter((n) => n.length >= 3 && /^[A-Z]/i.test(n));
+    for (const n of raw) names.add(n);
+  }
+
+  // Pattern: individual "Founder: Name" / "CEO & Founder: Name" etc.
+  const individualPatterns = [
+    /(?:founder\s*(?:&|and)\s*ceo|ceo\s*(?:&|and)\s*founder|founder|co-founder)\s*[:\-–]\s*([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})/gi,
+  ];
+  for (const pattern of individualPatterns) {
+    for (const m of text.matchAll(pattern)) {
+      const name = m[1]?.trim();
+      if (name && name.length >= 3) names.add(name);
+    }
+  }
+
+  return [...names].slice(0, 5);
+}
+
 async function fetchCandidateText(url: string): Promise<string> {
   const res = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0 WeConnectBot/1.0" },
@@ -218,6 +263,7 @@ export async function enrichCompanyCandidate(
     /(?:founder|ceo|owner|co-founder)\s*[:\-]\s*([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})/i,
     /(?:founded by)\s*([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})/i,
   ]);
+  let founderNames = extractFounderNames(original);
   const naicsCodes = extractNaicsCodes(original);
   const unspscCodes = extractUnspscCodes(original);
   const industryHint = firstMatch(original, [
@@ -234,8 +280,26 @@ export async function enrichCompanyCandidate(
   ]);
   let companyType = extractCompanyType(original);
 
-  // Backup fallback deep snippet search if still missing AND no INSTA_API_KEY matched our fields
-  // Removed deep search since paidUpCapital, fundingInfo, partnerNames no longer exist and it was used only for those
+  // Fallback SERP search for founder names if not found in the primary page text
+  if (!founderNames.length && candidate.url.startsWith("http")) {
+    try {
+      const founderSearchResult = await searchWebByQuery(
+        `${candidate.title ?? ""} founders co-founders`,
+      );
+      const founderSnippets = founderSearchResult.candidates
+        .slice(0, 3)
+        .map((c) => `${c.title}. ${c.snippet}`)
+        .join(" ");
+      if (founderSnippets) {
+        founderNames = extractFounderNames(founderSnippets);
+        if (founderNames.length) {
+          evidence.push(`Founder names sourced from secondary SERP search.`);
+        }
+      }
+    } catch {
+      // Secondary founder search failed, continue without
+    }
+  }
 
   if (legalName) evidence.push(`Legal name inferred from title: ${legalName}`);
   if (country && countrySource === "explicit_phrase") {
@@ -246,6 +310,7 @@ export async function enrichCompanyCandidate(
     evidence.push(`Country inferred from strong U.S. text/address cues: ${country}`);
   }
   if (ownerName) evidence.push(`Owner/founder hint: ${ownerName}`);
+  if (founderNames.length) evidence.push(`Founder names: ${founderNames.join(", ")}`);
   if (naicsCodes.length) evidence.push(`NAICS codes detected from web text: ${naicsCodes.join(", ")}`);
   if (unspscCodes.length) evidence.push(`UNSPSC codes detected from web text: ${unspscCodes.join(", ")}`);
   if (industryHint) evidence.push(`Industry hint extracted from text.`);
@@ -263,6 +328,7 @@ export async function enrichCompanyCandidate(
       : undefined,
     countrySource,
     ownerName,
+    founderNames: founderNames.length ? founderNames : undefined,
     naicsCodes,
     unspscCodes,
     industryHint,

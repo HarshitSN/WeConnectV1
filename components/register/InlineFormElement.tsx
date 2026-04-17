@@ -57,9 +57,12 @@ export default function InlineFormElement({
       );
     case "women_owned":
       return (
-        <div className="mt-4 flex gap-2 max-w-sm pt-2 border-t border-gray-100">
+        <div className="mt-4 max-w-sm pt-2 border-t border-gray-100 space-y-2">
+          <p className="text-xs font-medium text-gray-600">Is it 51% owned by women?</p>
+          <div className="flex gap-2">
           <button onClick={() => set("women_owned", true)} className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all shadow-sm bg-white", answers.women_owned === true ? "border-brand-blue bg-blue-50 text-brand-blue" : "border-gray-200 hover:border-brand-blue/50")}>Yes, 51%+ women owned</button>
           <button onClick={() => set("women_owned", false)} className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-all shadow-sm bg-white", answers.women_owned === false ? "border-red-300 bg-red-50 text-red-600" : "border-gray-200 hover:border-red-300/50")}>No</button>
+          </div>
         </div>
       );
     case "country":

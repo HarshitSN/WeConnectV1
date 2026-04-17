@@ -25,7 +25,7 @@ export function getNextQuestion(pointer: ConversationPointer, state: Registratio
     case "business_name":
       return "Let us get started with the basics. What is your registered business name?";
     case "women_owned":
-      return "Thanks. Is your business at least 51 percent owned by women?";
+      return "Thanks. Is it 51% owned by women?";
     case "country":
       return "Great. Which country is your business based in today?";
     case "us_citizen":
