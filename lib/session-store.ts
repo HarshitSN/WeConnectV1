@@ -2,6 +2,34 @@ import { randomBytes } from "crypto";
 import type { CertificateRecord, ChatMessage, SessionStage } from "./types";
 import type { RegistrationDraft } from "./registration";
 
+export type AiAssessmentReport = {
+  version: string;
+  generatedAt: string;
+  mock: boolean;
+  disclaimer: string;
+  documents?: {
+    submittedCount: number;
+    verified: boolean;
+    confidence: number;
+    summary: string;
+    checkedAt: string;
+  };
+  identity?: {
+    idFaceMatch: boolean;
+    matchScore: number;
+    confidence: number;
+    livenessHint?: string;
+    nameGuess?: string;
+    warningCode?: string;
+    nameMatchBypassed?: boolean;
+    checkedAt: string;
+  };
+  overall: {
+    status: "partial" | "ready";
+    score: number;
+  };
+};
+
 export type SessionRecord = {
   id: string;
   stage: SessionStage;
@@ -38,6 +66,7 @@ export type SessionRecord = {
     idConfidence?: number;
     idPassed?: boolean;
   };
+  aiAssessmentReport?: AiAssessmentReport;
   lastAnchorError?: {
     at: string;
     reasonCode: string;
@@ -76,6 +105,45 @@ if (!globalStore.certificates) globalStore.certificates = certificates;
 
 function now() {
   return Date.now();
+}
+
+function recomputeAiOverall(report: AiAssessmentReport): AiAssessmentReport {
+  const hasDocuments = Boolean(report.documents);
+  const hasIdentity = Boolean(report.identity);
+  let score = 0;
+  if (hasDocuments && hasIdentity) {
+    score = Math.round(((report.documents?.confidence ?? 0) + (report.identity?.matchScore ?? 0)) / 2);
+  } else if (hasDocuments) {
+    score = report.documents?.confidence ?? 0;
+  } else if (hasIdentity) {
+    score = report.identity?.matchScore ?? 0;
+  }
+
+  return {
+    ...report,
+    generatedAt: new Date().toISOString(),
+    overall: {
+      status: hasDocuments && hasIdentity ? "ready" : "partial",
+      score,
+    },
+  };
+}
+
+function ensureAiAssessmentReport(session: SessionRecord): AiAssessmentReport {
+  const existing = session.aiAssessmentReport;
+  if (existing) return existing;
+  const created: AiAssessmentReport = {
+    version: "v1-mock",
+    generatedAt: new Date().toISOString(),
+    mock: true,
+    disclaimer: "Mock AI assessment for demo only. This is not legal identity verification.",
+    overall: {
+      status: "partial",
+      score: 0,
+    },
+  };
+  session.aiAssessmentReport = created;
+  return created;
 }
 
 export function createSession(): SessionRecord {
@@ -198,6 +266,34 @@ export function setSessionVisionChecks(
   const s = sessions.get(sessionId);
   if (!s) return;
   s.visionChecks = { ...(s.visionChecks ?? {}), ...(checks ?? {}) };
+  touchSession(s);
+}
+
+export function upsertSessionAiDocumentAssessment(
+  sessionId: string,
+  documentAssessment: NonNullable<AiAssessmentReport["documents"]>,
+) {
+  const s = sessions.get(sessionId);
+  if (!s) return;
+  const report = ensureAiAssessmentReport(s);
+  s.aiAssessmentReport = recomputeAiOverall({
+    ...report,
+    documents: documentAssessment,
+  });
+  touchSession(s);
+}
+
+export function upsertSessionAiIdentityAssessment(
+  sessionId: string,
+  identityAssessment: NonNullable<AiAssessmentReport["identity"]>,
+) {
+  const s = sessions.get(sessionId);
+  if (!s) return;
+  const report = ensureAiAssessmentReport(s);
+  s.aiAssessmentReport = recomputeAiOverall({
+    ...report,
+    identity: identityAssessment,
+  });
   touchSession(s);
 }
 

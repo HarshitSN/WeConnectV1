@@ -97,7 +97,7 @@ export default function BuyerPortalPage() {
         filters.cert_status ? r.supplier.cert_status === filters.cert_status : true,
       );
       setRows(resultRows);
-      setRecommendations((json.recommendations ?? []).slice(0, 3));
+      setRecommendations((json.recommendations ?? []).slice(0, 6));
       setLoading(false);
     };
     void load();
@@ -232,7 +232,7 @@ export default function BuyerPortalPage() {
         {recommendations.length > 0 && (
           <section className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
             <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-zinc-200">
-              <Sparkles size={14} className="text-cyan-400" /> Top 3 recommended suppliers based on your requirement
+              <Sparkles size={14} className="text-cyan-400" /> Top recommended suppliers based on your requirement
             </p>
             <div className="grid gap-2 md:grid-cols-3">
               {recommendations.map((row) => (
@@ -309,7 +309,7 @@ export default function BuyerPortalPage() {
                 <label className="mb-1.5 block text-xs font-semibold text-zinc-300">Industry (NAICS)</label>
                 <select className="flex h-9 w-full cursor-pointer appearance-none rounded-md border border-zinc-800 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300" value={filters.naics} onChange={(e) => set("naics", e.target.value)}>
                   <option value="">Any</option>
-                  {NAICS_CODES.slice(0, 10).map((n) => (
+                  {NAICS_CODES.map((n) => (
                     <option key={n.code} value={n.code}>{n.code} - {n.label.split(",")[0]}</option>
                   ))}
                 </select>

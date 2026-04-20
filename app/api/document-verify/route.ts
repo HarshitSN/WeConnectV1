@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSession, appendTerminal } from "@/lib/session-store";
+import {
+  appendTerminal,
+  getSession,
+  upsertSessionAiDocumentAssessment,
+} from "@/lib/session-store";
+import { patchDomainState } from "@/lib/store/domain-store";
 import { runDocumentVerification } from "@/lib/gemini";
 
 export async function POST(req: Request) {
@@ -41,6 +46,23 @@ export async function POST(req: Request) {
       sessionId,
       `[DOC_VERIFY] verified=${result.verified} confidence=${result.confidence}% report="${result.report}"`
     );
+    upsertSessionAiDocumentAssessment(sessionId, {
+      submittedCount: documents.length,
+      verified: result.verified,
+      confidence: result.confidence,
+      summary: result.report,
+      checkedAt: new Date().toISOString(),
+    });
+    const refreshed = getSession(sessionId)?.aiAssessmentReport;
+    if (refreshed) {
+      patchDomainState(sessionId, {
+        aiAssessmentSummary: {
+          status: refreshed.overall.status,
+          score: refreshed.overall.score,
+          updatedAt: refreshed.generatedAt,
+        },
+      });
+    }
 
     return NextResponse.json({
       ok: true,

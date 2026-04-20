@@ -32,6 +32,11 @@ export type DomainState = {
   questionnaireAnswers: QuestionnaireAnswers;
   compliance?: ComplianceResult;
   trustReport?: TrustReport;
+  aiAssessmentSummary?: {
+    status: "partial" | "ready";
+    score: number;
+    updatedAt: string;
+  };
   governance: GovernanceState;
 };
 

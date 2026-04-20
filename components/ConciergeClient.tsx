@@ -11,7 +11,6 @@ import {
 import { trustLevelLabel, type CertificationType, type ComplianceResult, type TrustReport } from "@/lib/domains/contracts";
 import { BlockAnchorAnimation } from "./BlockAnchorAnimation";
 import { CertificateCard, type CertDisplay } from "./CertificateCard";
-import { TerminalFeed } from "./TerminalFeed";
 import { VoiceConcierge } from "./VoiceConcierge";
 import { WebcamCapture } from "./WebcamCapture";
 
@@ -207,6 +206,34 @@ type WorkflowState = {
   };
 };
 
+type AiAssessmentReport = {
+  version: string;
+  generatedAt: string;
+  mock: boolean;
+  disclaimer: string;
+  documents?: {
+    submittedCount: number;
+    verified: boolean;
+    confidence: number;
+    summary: string;
+    checkedAt: string;
+  };
+  identity?: {
+    idFaceMatch: boolean;
+    matchScore: number;
+    confidence: number;
+    livenessHint?: string;
+    nameGuess?: string;
+    warningCode?: string;
+    nameMatchBypassed?: boolean;
+    checkedAt: string;
+  };
+  overall: {
+    status: "partial" | "ready";
+    score: number;
+  };
+};
+
 type BuyerFlowRow = {
   supplier: {
     id: string;
@@ -275,7 +302,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [query, setQuery] = useState("Global Tech Solutions");
   const [match, setMatch] = useState<Match | null>(null);
   const [stage, setStage] = useState<string>("idle");
-  const [lines, setLines] = useState<string[]>([]);
   const [assistant, setAssistant] = useState<string>("");
   const [badge, setBadge] = useState<string | null>(null);
   const [cert, setCert] = useState<CertDisplay | null>(null);
@@ -314,7 +340,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [visionChecks, setVisionChecks] = useState<{
     idPassed?: boolean;
   }>({});
-  const linesSigRef = useRef("");
   const [fieldEvidence, setFieldEvidence] = useState<Partial<Record<keyof RegistrationDraft, string>>>(
     {},
   );
@@ -326,6 +351,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
   const [workflow, setWorkflow] = useState<WorkflowState | null>(null);
+  const [aiAssessmentReport, setAiAssessmentReport] = useState<AiAssessmentReport | null>(null);
+  const [downloadingAiReport, setDownloadingAiReport] = useState(false);
   const [compliance, setCompliance] = useState<ComplianceResult | null>(null);
   const [trustReport, setTrustReport] = useState<TrustReport | null>(null);
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, string>>({
@@ -360,15 +387,9 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       registration?: RegistrationDraft;
       paid?: boolean;
       visionChecks?: { idPassed?: boolean };
+      aiAssessmentReport?: AiAssessmentReport;
       workflow?: WorkflowState;
     };
-    if (j.terminalLines) {
-      const nextSig = `${j.terminalLines.length}:${j.terminalLines[j.terminalLines.length - 1] ?? ""}`;
-      if (linesSigRef.current !== nextSig) {
-        linesSigRef.current = nextSig;
-        setLines(j.terminalLines);
-      }
-    }
     if (j.stage && j.stage !== stage) setStage(j.stage);
     if (j.registration) {
       const workflowCertType = j.workflow?.certificationType;
@@ -393,6 +414,11 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       j.visionChecks.idPassed !== visionChecks.idPassed
     ) {
       setVisionChecks(j.visionChecks);
+    }
+    if (j.aiAssessmentReport) {
+      setAiAssessmentReport(j.aiAssessmentReport);
+    } else {
+      setAiAssessmentReport(null);
     }
     if (j.workflow) {
       setWorkflow(j.workflow);
@@ -827,6 +853,34 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     }
   }, [sessionId, refreshSession, registration, paid, saveRegistration]);
 
+  const downloadAiAssessmentReport = useCallback(async () => {
+    if (!sessionId) return;
+    setDownloadingAiReport(true);
+    try {
+      const response = await fetch(`/api/ai-assessment/report?sessionId=${encodeURIComponent(sessionId)}`);
+      if (!response.ok) {
+        const parsed = await parseJsonSafe<{ error?: string }>(response);
+        setAssistant(parsed.errorMessage ?? "AI assessment report is not ready yet.");
+        return;
+      }
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = contentDisposition.match(/filename=\"([^\"]+)\"/i);
+      const filename = filenameMatch?.[1] ?? `ai-assessment-${sessionId.slice(0, 8)}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setAssistant("AI assessment report downloaded.");
+    } catch {
+      setAssistant("Could not download AI assessment report. Please retry.");
+    } finally {
+      setDownloadingAiReport(false);
+    }
+  }, [sessionId]);
+
   const sendVision = async (dataUrl: string) => {
     if (!sessionId) return;
     setScanning(true);
@@ -1036,6 +1090,11 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     stage === "anchoring" ||
     stage === "complete" ||
     Boolean(cert);
+  const aiAssessmentReady =
+    isDigitalPath &&
+    aiAssessmentReport?.overall.status === "ready" &&
+    Boolean(aiAssessmentReport.documents) &&
+    Boolean(aiAssessmentReport.identity);
   const nextAction = (() => {
     if (!sessionId) {
       return {
@@ -1151,48 +1210,54 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   ] as const;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
+    <div className="relative flex min-h-0 flex-1 flex-col gap-6">
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-40 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-cyan-200/70 blur-3xl" />
+        <div className="absolute right-[-8rem] top-1/3 h-80 w-80 rounded-full bg-sky-200/60 blur-3xl" />
+      </div>
       <BlockAnchorAnimation active={anchoring} txHash={pendingTx} />
 
-      <main className="flex min-w-0 flex-1 flex-col gap-4">
+      <main className="mx-auto flex w-full max-w-6xl min-w-0 flex-1 flex-col gap-5">
         {!embed && (
-          <header className="flex flex-wrap items-center justify-between gap-2 text-sm text-zinc-500">
-            <span className="text-zinc-400">WEC-Guardian · demonstration only</span>
+          <header className="rounded-2xl border border-slate-200 bg-white/85 px-5 py-3 shadow-[0_14px_36px_rgb(15,23,42,0.12)] backdrop-blur-xl">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+              <span className="font-medium text-slate-800">WEC-Guardian · demonstration only</span>
             <div className="flex gap-3">
-              <Link href="/admin" className="text-cyan-400 hover:underline">
+              <Link href="/admin" className="font-medium text-cyan-700 transition hover:text-cyan-900">
                 Admin
               </Link>
-              <Link href="/demo" className="text-cyan-400 hover:underline">
+              <Link href="/demo" className="font-medium text-cyan-700 transition hover:text-cyan-900">
                 Split demo
               </Link>
+            </div>
             </div>
           </header>
         )}
 
-        <section className="rounded-2xl border border-white/10 bg-gradient-to-r from-zinc-900 to-zinc-950 p-4">
-          <p className="text-sm font-semibold text-zinc-100">60 second certificate process</p>
-          <p className="mt-1 text-xs text-zinc-400">
+        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_16px_40px_rgb(15,23,42,0.12)] backdrop-blur-xl">
+          <p className="text-base font-bold text-slate-900">60 second certificate process</p>
+          <p className="mt-1 text-xs text-slate-600">
             Build trust from self-declared profile to digitally certified supplier.
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-amber-200/90">
+            <span className="rounded-full border border-amber-300/70 bg-amber-100 px-2 py-1 text-amber-700">
               Demo mode: not legal identity verification
             </span>
-            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-200/90">
+            <span className="rounded-full border border-cyan-300/70 bg-cyan-100 px-2 py-1 text-cyan-700">
               Multi-language ready: English, Hindi, Spanish
             </span>
           </div>
         </section>
         {quotaFallbackNotice && (
-          <p className="rounded-lg border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-xs text-violet-200/95">
+          <p className="rounded-lg border border-sky-300/35 bg-sky-400/10 px-3 py-2 text-xs text-sky-100/95">
             {fallbackReasonCopy(quotaFallbackReason, quotaFallbackSubtype)} Continuing in{" "}
             <strong className="font-medium">demo mode</strong>.{" "}
             {fallbackReasonGuidance(quotaFallbackReason, quotaFallbackSubtype)}
           </p>
         )}
-        <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
-          <p className="text-sm font-semibold text-cyan-100">Step 1: Choose certification path</p>
-          <p className="mt-1 text-xs text-cyan-200/80">
+        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+          <p className="text-base font-bold text-slate-900">Step 1: Choose certification path</p>
+          <p className="mt-1 text-xs text-slate-600">
             Current:{" "}
             {activeCertType === "digital"
               ? "Digital Certification"
@@ -1206,9 +1271,9 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               onClick={() => {
                 void setCertificationType("self");
               }}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isSelfPath
-                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-100"
-                : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
+              className={`rounded-xl border px-4 py-2 text-xs font-semibold transition ${isSelfPath
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
             >
               Self-Certified
@@ -1218,23 +1283,23 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               onClick={() => {
                 void setCertificationType("digital");
               }}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isDigitalPath
-                ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                : "border-zinc-700 bg-black/30 text-zinc-200 hover:bg-zinc-800"
+              className={`rounded-xl border px-4 py-2 text-xs font-semibold transition ${isDigitalPath
+                ? "border-cyan-300 bg-cyan-50 text-cyan-700 shadow-sm"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
             >
               Digital Certification
             </button>
           </div>
         </section>
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h2 className="text-lg font-semibold text-white">Step 2: Proactive intake</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Enter a business name or URL. Try <strong className="text-zinc-200">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
+        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+          <h2 className="text-xl font-bold text-slate-900">Step 2: Proactive intake</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Enter a business name or URL. Try <strong className="text-slate-900">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
           </p>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <input
-              className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm outline-none focus:border-cyan-500/50"
+              className="flex-1 rounded-xl border border-slate-200 bg-white/85 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-cyan-300/80 focus:ring-2 focus:ring-cyan-200/40"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Business name or URL"
@@ -1243,25 +1308,25 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               type="button"
               onClick={() => void runDiscover()}
               disabled={!sessionId}
-              className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-40"
+              className="rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgb(8,112,184,0.35)] transition hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40"
             >
               Discover
             </button>
           </div>
         </section>
-        <section className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-4">
-          <p className="text-sm font-semibold text-cyan-100">Guided Flow</p>
-          <p className="mt-3 text-sm text-cyan-50">{nextAction.title}</p>
-          <p className="mt-1 text-xs text-cyan-200/80">{nextAction.detail}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
+        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+          <h2 className="text-xl font-bold tracking-tight text-slate-800">Guided Flow</h2>
+          <p className="mt-3 text-sm font-semibold text-cyan-900">{nextAction.title}</p>
+          <p className="mt-1 text-xs font-medium text-slate-600">{nextAction.detail}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
             {flowSteps.map((step, index) => (
               <span
                 key={step}
-                className={`rounded-full border px-2 py-1 text-[11px] ${index < currentFlowStep
-                  ? "border-emerald-400/40 bg-emerald-500/20 text-emerald-200"
+                className={`rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm ${index < currentFlowStep
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-600"
                   : index === currentFlowStep
-                    ? "border-cyan-400/50 bg-cyan-500/20 text-cyan-100"
-                    : "border-white/10 bg-black/20 text-zinc-400"
+                    ? "border-cyan-300 bg-cyan-500 text-white shadow-cyan-100"
+                    : "border-slate-100 bg-white text-slate-400"
                   }`}
               >
                 {index + 1}. {step}
@@ -1272,18 +1337,18 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             <button
               type="button"
               onClick={() => void startVerification()}
-              className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+              className="mt-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgb(8,120,90,0.32)] transition hover:from-emerald-500 hover:to-teal-400"
             >
               {isSelfPath ? "Continue Self-Certification" : "Start 60-second verification"}
             </button>
           )}
         </section>
 
-        <section className="hidden rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="flex items-center justify-between gap-3">
+        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-white">Certification workspace</h2>
-              <p className="mt-1 text-xs text-zinc-400">
+              <h2 className="text-xl font-bold tracking-tight text-slate-800">Advanced Workspace</h2>
+              <p className="mt-1 text-xs font-medium text-slate-500">
                 {workflow
                   ? `${trustLevelLabel(workflow.trustLevel)} · Stage: ${workflow.certificationStage}`
                   : "Level 1: Self-Declared · Stage: intake"}
@@ -1292,11 +1357,12 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             <button
               type="button"
               onClick={() => setShowAdvanced((v) => !v)}
-              className="rounded-md border border-white/15 bg-black/20 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 active:scale-95"
             >
-              {showAdvanced ? "Hide Advanced Controls" : "Show Advanced Controls"}
+              {showAdvanced ? "HIDE CONTROLS" : "SHOW CONTROLS"}
             </button>
           </div>
+ drum
           {isSelfPath && (
             <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100">
               <p className="font-semibold">Upgrade option</p>
@@ -1322,11 +1388,11 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
 
           {showAdvanced && (
             <>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <label className="text-xs text-zinc-300">
-                  Ownership control
+              <div className="mt-8 grid gap-5 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Ownership control</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
                     value={questionnaireAnswers.ownership_control ?? ""}
                     onChange={(e) =>
                       setQuestionnaireAnswers((prev) => ({ ...prev, ownership_control: e.target.value }))
@@ -1334,10 +1400,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     placeholder="Who controls ownership decisions?"
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  Operational involvement
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Operational involvement</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
                     value={questionnaireAnswers.operational_involvement ?? ""}
                     onChange={(e) =>
                       setQuestionnaireAnswers((prev) => ({
@@ -1348,30 +1414,30 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     placeholder="Describe day-to-day involvement"
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  Years in business
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Years in business</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10"
                     value={questionnaireAnswers.years_in_business ?? ""}
                     onChange={(e) =>
                       setQuestionnaireAnswers((prev) => ({ ...prev, years_in_business: e.target.value }))
                     }
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  Clients worked with
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Clients worked with</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10"
                     value={questionnaireAnswers.clients_worked_with ?? ""}
                     onChange={(e) =>
                       setQuestionnaireAnswers((prev) => ({ ...prev, clients_worked_with: e.target.value }))
                     }
                   />
                 </label>
-                <label className="text-xs text-zinc-300 sm:col-span-2">
-                  Product scale
+                <label className="flex flex-col gap-1.5 sm:col-span-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Product scale</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
                     value={questionnaireAnswers.product_scale ?? ""}
                     onChange={(e) =>
                       setQuestionnaireAnswers((prev) => ({ ...prev, product_scale: e.target.value }))
@@ -1381,27 +1447,27 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                 </label>
               </div>
 
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-6 flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={() => void saveQuestionnaire()}
-                  className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 active:scale-95"
                 >
-                  Save questionnaire
+                  SAVE QUESTIONNAIRE
                 </button>
                 <button
                   type="button"
                   onClick={() => void runCompliance()}
-                  className="rounded border border-emerald-500/50 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-500/10"
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-600 shadow-sm transition-all hover:bg-emerald-100 active:scale-95"
                 >
-                  Run compliance check
+                  RUN COMPLIANCE CHECK
                 </button>
                 <button
                   type="button"
                   onClick={() => void createTrustReport()}
-                  className="rounded border border-cyan-500/50 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10"
+                  className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-xs font-bold text-cyan-600 shadow-sm transition-all hover:bg-cyan-100 active:scale-95"
                 >
-                  Generate WeConnect Trust Report
+                  GENERATE TRUST REPORT
                 </button>
               </div>
 
@@ -1461,7 +1527,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
           {false && (
             <>
               <h2 className="text-lg font-semibold text-white">Intake details and prefill review</h2>
@@ -1472,40 +1538,40 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             </>
           )}
           {match && (
-            <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-sm">
-              <p className="font-medium text-emerald-200">{match.companyName}</p>
-              <p className="text-zinc-400">{match.registrySnippet}</p>
-              <p className="mt-2 text-zinc-300">
-                Primary owner: <span className="text-white">{match.primaryOwner}</span> · Female
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/75 p-4 text-sm">
+              <p className="font-semibold text-emerald-800">{match.companyName}</p>
+              <p className="text-slate-600">{match.registrySnippet}</p>
+              <p className="mt-2 text-slate-700">
+                Primary owner: <span className="font-medium text-slate-900">{match.primaryOwner}</span> · Female
                 ownership (filed, prefill only):{" "}
-                <span className="text-emerald-400">
+                <span className="text-emerald-700">
                   {typeof match.ownershipFemalePct === "number" && ownershipEvidenceConfidence > 0
                     ? `${match.ownershipFemalePct}%`
                     : "Unknown (awaiting evidence)"}
                 </span>
               </p>
-              <p className="mt-1 text-zinc-300">
+              <p className="mt-1 text-slate-700">
                 Primary owner share (prefill, unverified):{" "}
-                <span className="text-amber-300">
+                <span className="text-amber-700">
                   {typeof match.ownerPrefillPct === "number" ? `${match.ownerPrefillPct}%` : "Unknown"}
                 </span>
               </p>
-              <p className="mt-1 text-zinc-300">
+              <p className="mt-1 text-slate-700">
                 Ownership source:{" "}
-                <span className="text-cyan-300">{ownership?.sourceType ?? "web_inferred"}</span> · Confidence:{" "}
-                <span className="text-cyan-200">{ownershipEvidenceConfidence}%</span>
+                <span className="text-cyan-700">{ownership?.sourceType ?? "web_inferred"}</span> · Confidence:{" "}
+                <span className="text-cyan-700">{ownershipEvidenceConfidence}%</span>
                 {ownership?.value !== undefined ? (
                   <>
                     {" "}
-                    · Reported stake: <span className="text-cyan-200">{ownership.value}%</span>
+                    · Reported stake: <span className="text-cyan-700">{ownership.value}%</span>
                   </>
                 ) : null}
               </p>
               {ownershipBreakdown?.ownership_total_promoter_pct !== undefined ||
                 ownershipBreakdown?.ownership_total_public_pct !== undefined ? (
-                <p className="mt-1 text-zinc-300">
+                <p className="mt-1 text-slate-700">
                   Promoter/Public:{" "}
-                  <span className="text-cyan-200">
+                  <span className="text-cyan-700">
                     {ownershipBreakdown.ownership_total_promoter_pct ?? "NA"}% /{" "}
                     {ownershipBreakdown.ownership_total_public_pct ?? "NA"}%
                   </span>
@@ -1515,61 +1581,76 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                 </p>
               ) : null}
               {needsCandidateConfirmation ? (
-                <p className="mt-2 text-xs text-amber-300">
+                <p className="mt-2 text-xs text-amber-700">
                   Candidate confirmation required before verification can start.
                 </p>
               ) : null}
               {countryRequiresConfirmation && !countryConfirmed ? (
-                <p className="mt-2 text-xs text-amber-300">
+                <p className="mt-2 text-xs text-amber-700">
                   Country confirmation required before verification can start.
                 </p>
               ) : null}
             </div>
           )}
           {match && (
-            <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm">
-              <p className="font-medium text-cyan-100">Prefill review (editable)</p>
-              <p className="mt-1 text-xs text-zinc-400">
-                Fetched from registry/web. Voice now focuses on unresolved fields and confirmations.
-              </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <label className="text-xs text-zinc-300">
-                  Business name
+            <div className="mt-6 rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50/80 to-white/80 p-5 shadow-sm backdrop-blur-md">
+              <div className="flex items-center justify-between border-b border-cyan-100/50 pb-3">
+                <div>
+                  <h3 className="text-base font-semibold text-cyan-900">Prefill Review</h3>
+                  <p className="text-xs text-cyan-700/70">
+                    Verify and edit the details fetched from the registry or web.
+                  </p>
+                </div>
+                <div className="rounded-full bg-cyan-100/50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-700">
+                  Editable
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">Business name</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10"
                     value={registration.business_name}
                     onChange={(e) =>
                       setRegistration((prev) => ({ ...prev, business_name: e.target.value }))
                     }
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  Country
-                  <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
-                    value={registration.country}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setRegistration((prev) => ({ ...prev, country: next }));
-                      if (countryRequiresConfirmation) {
-                        setCountryConfirmed(false);
-                      }
-                    }}
-                  />
-                  {countryRequiresConfirmation ? (
-                    <button
-                      type="button"
-                      onClick={() => setCountryConfirmed(Boolean(registration.country.trim()))}
-                      className="mt-1 rounded border border-cyan-500/40 px-2 py-1 text-[11px] text-cyan-200"
-                    >
-                      {countryConfirmed ? "Country confirmed" : "Confirm country"}
-                    </button>
-                  ) : null}
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">Country</span>
+                  <div className="relative">
+                    <input
+                      className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10"
+                      value={registration.country}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setRegistration((prev) => ({ ...prev, country: next }));
+                        if (countryRequiresConfirmation) {
+                          setCountryConfirmed(false);
+                        }
+                      }}
+                    />
+                    {countryRequiresConfirmation && (
+                      <button
+                        type="button"
+                        onClick={() => setCountryConfirmed(Boolean(registration.country.trim()))}
+                        className={`absolute right-2 top-1.5 rounded-lg px-2 py-1 text-[10px] font-medium transition-colors ${
+                          countryConfirmed 
+                            ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                            : "bg-cyan-50 text-cyan-600 border border-cyan-100 hover:bg-cyan-100"
+                        }`}
+                      >
+                        {countryConfirmed ? "✓ Confirmed" : "Confirm"}
+                      </button>
+                    )}
+                  </div>
                 </label>
-                <label className="text-xs text-zinc-300">
-                  Primary owner
+
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">Primary owner</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10"
                     value={registration.owner_details[0]?.fullName || ""}
                     onChange={(e) =>
                       setRegistration((prev) => ({
@@ -1585,10 +1666,11 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     }
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  NAICS codes (comma separated)
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">NAICS codes</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
+                    placeholder="e.g. 541511, 511210"
                     value={registration.naics_codes.join(", ")}
                     onChange={(e) =>
                       setRegistration((prev) => ({
@@ -1601,10 +1683,12 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     }
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  UNSPSC codes (comma separated)
+
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">UNSPSC codes</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
+                    placeholder="e.g. 43232304, 43232107"
                     value={registration.unspsc_codes.join(", ")}
                     onChange={(e) =>
                       setRegistration((prev) => ({
@@ -1618,18 +1702,18 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   />
                 </label>
 
-                <label className="text-xs text-zinc-300">
-                  Female owned %
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">Female owned %</span>
                   <input
                     type="number"
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10"
                     value={registration.owner_details[0]?.ownershipPct ?? 0}
                     onChange={(e) =>
                       setRegistration((prev) => ({
                         ...prev,
                         owner_details: [
                           {
-                            fullName: prev.owner_details[0]?.fullName || match.primaryOwner,
+                            fullName: prev.owner_details[0]?.fullName || (match?.primaryOwner ?? ""),
                             gender: prev.owner_details[0]?.gender || "Female",
                             ownershipPct: Number(e.target.value || 0),
                           },
@@ -1638,26 +1722,27 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                     }
                   />
                 </label>
-                <label className="text-xs text-zinc-300">
-                  Company type
+
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">Company type</span>
                   <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
                     value={registration.company_type}
                     onChange={(e) =>
                       setRegistration((prev) => ({ ...prev, company_type: e.target.value }))
                     }
-                    placeholder="e.g. Private Limited, LLP, Partnership Firm"
+                    placeholder="e.g. Private Limited, LLP"
                   />
                 </label>
 
                 {founderNames.length > 0 && (
-                  <div className="text-xs text-zinc-300">
-                    <span className="text-zinc-400">Founders</span>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">Founders</span>
+                    <div className="flex flex-wrap gap-2">
                       {founderNames.map((name) => (
                         <span
                           key={name}
-                          className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-200"
+                          className="rounded-lg border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-[11px] font-medium text-cyan-700"
                         >
                           {name}
                         </span>
@@ -1667,10 +1752,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                 )}
 
               </div>
-              <label className="mt-2 block text-xs text-zinc-300">
-                Business description (min 30 chars)
+              <label className="mt-4 flex flex-col gap-1.5">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-cyan-800/60">Business description (min 30 chars)</span>
                 <textarea
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-sm"
+                  className="w-full rounded-xl border border-cyan-200/50 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10"
                   rows={3}
                   value={registration.business_description}
                   onChange={(e) =>
@@ -1678,61 +1763,58 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   }
                 />
               </label>
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-zinc-400">
-                <span>
-                  Source business_name: {fieldSource.business_name ?? "manual"} ·{" "}
-                  {fieldConfidence.business_name ?? 0}%
-                </span>
-                <span>
-                  Source country: {fieldSource.country ?? "manual"} · {fieldConfidence.country ?? 0}%
-                </span>
-                <span>
-                  NAICS classification: {toBadge(naicsSourceType, classificationSummary?.naics?.confidence)}
-                </span>
-                <span>
-                  UNSPSC classification: {toBadge(unspscSourceType, classificationSummary?.unspsc?.confidence)}
-                </span>
+              <div className="mt-5 flex flex-wrap gap-3 border-t border-cyan-100/50 pt-4">
+                <div className="flex items-center gap-1.5 rounded-full bg-cyan-50/50 px-3 py-1 text-[10px] font-bold text-cyan-700 shadow-sm border border-cyan-100/50">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+                  Name Confidence: {fieldConfidence.business_name ?? 0}%
+                </div>
+                <div className="flex items-center gap-1.5 rounded-full bg-cyan-50/50 px-3 py-1 text-[10px] font-bold text-cyan-700 shadow-sm border border-cyan-100/50">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+                  Country Confidence: {fieldConfidence.country ?? 0}%
+                </div>
               </div>
-              <div className="mt-2 text-[11px] text-zinc-500">
-                {fieldEvidence.business_name ? <p>Business name evidence: {fieldEvidence.business_name}</p> : null}
-                {fieldEvidence.country ? <p>Country evidence: {fieldEvidence.country}</p> : null}
-                {fieldEvidence.owner_details ? <p>Owner evidence: {fieldEvidence.owner_details}</p> : null}
-                {fieldEvidence.naics_codes ? <p>NAICS evidence: {fieldEvidence.naics_codes}</p> : null}
-                {fieldEvidence.unspsc_codes ? <p>UNSPSC evidence: {fieldEvidence.unspsc_codes}</p> : null}
-                {fieldEvidence.business_description ? (
-                  <p>Description evidence: {fieldEvidence.business_description}</p>
-                ) : null}
-                {fieldEvidence.company_type ? <p>Company type evidence: {fieldEvidence.company_type}</p> : null}
-
+              <div className="mt-3 space-y-1 px-1">
+                {fieldEvidence.business_name ? <p className="text-[10px] font-medium text-slate-500 italic">Evidence (Name): {fieldEvidence.business_name}</p> : null}
+                {fieldEvidence.country ? <p className="text-[10px] font-medium text-slate-500 italic">Evidence (Country): {fieldEvidence.country}</p> : null}
               </div>
+              
               {!!discoverCandidates.length && (
-                <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2 text-[11px] text-zinc-400">
-                  <p className="text-zinc-300">Top web candidates</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <select
-                      className="rounded border border-white/10 bg-black/40 px-2 py-1 text-[11px]"
-                      value={selectedCandidateIndex}
-                      onChange={(e) => setSelectedCandidateIndex(Number(e.target.value))}
-                    >
-                      {discoverCandidates.slice(0, 3).map((c, idx) => (
-                        <option key={`${c.url}-${idx}`} value={idx}>
-                          {idx + 1}. {c.title} ({c.score ?? 0})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => void runDiscover(selectedCandidateIndex, true)}
-                      className="rounded border border-cyan-500/40 px-2 py-1 text-[11px] text-cyan-200"
-                    >
-                      Use selected candidate
-                    </button>
+                <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Web Search Candidates</p>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
+                        value={selectedCandidateIndex}
+                        onChange={(e) => setSelectedCandidateIndex(Number(e.target.value))}
+                      >
+                        {discoverCandidates.slice(0, 3).map((c, idx) => (
+                          <option key={`${c.url}-${idx}`} value={idx}>
+                            Candidate #{idx + 1} ({c.score ?? 0})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void runDiscover(selectedCandidateIndex, true)}
+                        className="rounded-lg bg-cyan-600 px-3 py-1 text-[11px] font-bold text-white transition-all hover:bg-cyan-500"
+                      >
+                        USE THIS
+                      </button>
+                    </div>
                   </div>
-                  {discoverCandidates.slice(0, 3).map((c) => (
-                    <p key={`${c.url}-${c.title}`}>
-                      {c.title} {c.domain ? `(${c.domain})` : ""} [{c.score ?? 0}] - {c.snippet.slice(0, 90)}
-                    </p>
-                  ))}
+                  <div className="space-y-2">
+                    {discoverCandidates.slice(0, 3).map((c, idx) => (
+                      <div 
+                        key={`${c.url}-${idx}`} 
+                        className={`rounded-xl border p-3 transition-all ${idx === selectedCandidateIndex ? "border-cyan-200 bg-white shadow-sm ring-1 ring-cyan-100" : "border-slate-100 bg-white/50 opacity-60"}`}
+                      >
+                        <p className="text-xs font-bold text-slate-800">{c.title}</p>
+                        <p className="mt-1 text-[10px] leading-relaxed text-slate-500 line-clamp-2">{c.snippet}</p>
+                        {c.domain && <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-cyan-600">{c.domain}</p>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               {!!registrationCheck.missingRequired.length && (
@@ -1755,68 +1837,110 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h2 className="text-lg font-semibold text-white">Voice · Vision</h2>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-cyan-100/90">{assistant || "…"}</p>
-          {badge && (
-            <p className="mt-2 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 font-mono text-xs text-cyan-200">
-              {badge}
+        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">Voice · Vision</h2>
+            <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
+              Stage: {stage}
+            </div>
+          </div>
+          
+          <div className="mt-5 space-y-3">
+            <p className="rounded-2xl bg-cyan-50/50 p-4 text-sm leading-relaxed text-slate-700 shadow-inner">
+              {assistant || "Awaiting input..."}
             </p>
-          )}
-          {visionNote ? (
-            <p className="mt-2 text-xs text-zinc-500">Vision summary: {visionNote}</p>
-          ) : null}
-          {visionWarning ? (
-            <p className="mt-2 text-xs text-amber-300">Vision warning: {visionWarning}</p>
-          ) : null}
-          {!!visionBlockers.length && (
-            <p className="mt-2 text-xs text-amber-300">Vision blockers: {visionBlockers.join(", ")}</p>
-          )}
+            
+            {badge && (
+              <div className="flex items-center gap-2 rounded-xl border border-cyan-100 bg-white/50 px-3 py-2 font-mono text-[11px] text-cyan-700 shadow-sm">
+                <span className="font-bold opacity-40">SYSTEM:</span> {badge}
+              </div>
+            )}
+            
+            {visionNote && (
+              <p className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                <span className="h-1 w-1 rounded-full bg-slate-400" />
+                Vision: {visionNote}
+              </p>
+            )}
+            
+            {visionWarning && (
+              <div className="flex items-center gap-2 rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2 text-xs font-medium text-amber-700">
+                <span className="text-sm">⚠</span> {visionWarning}
+              </div>
+            )}
+            
+            {!!visionBlockers.length && (
+              <div className="flex items-center gap-2 rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-2 text-xs font-medium text-rose-700">
+                <span className="text-sm">✖</span> Blockers: {visionBlockers.join(", ")}
+              </div>
+            )}
+          </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-4">
+          <div className="mt-6 flex gap-3">
             <VoiceConcierge
               onTranscript={(t) => void onVoice(t)}
               disabled={!sessionId || !match || stage === "complete"}
             />
-            <span className="text-xs text-zinc-500">Stage: {stage}</span>
+            <div className="flex-1">
+              <input
+                className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-medium text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-400/5 placeholder:text-slate-400"
+                placeholder="Type instead of speaking..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const val = (e.target as HTMLInputElement).value;
+                    if (val.trim()) {
+                      void onVoice(val);
+                      (e.target as HTMLInputElement).value = "";
+                    }
+                  }
+                }}
+              />
+            </div>
           </div>
           
-          {lines.length > 0 && (
-            <TerminalFeed lines={lines} className="mt-4" />
-          )}
-
           {stage === "doc_upload" && (
-            <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-cyan-500/30 p-6">
-              <p className="text-sm font-medium text-cyan-200">Upload Business Registration Document</p>
-              <p className="mt-1 text-xs text-zinc-400">Please provide up to 3 files (PDF/Word) for automated extraction.</p>
+            <div className="mt-8 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-cyan-200 bg-cyan-50/30 p-8 text-center transition-colors hover:bg-cyan-50/50">
+              <div className="mb-3 rounded-full bg-cyan-100 p-3 text-cyan-600">
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+              </div>
+              <p className="text-base font-semibold text-cyan-900">Upload Registration Documents</p>
+              <p className="mt-1 text-xs text-slate-500">Supported formats: PDF, DOCX (Max 3 files)</p>
+              
               {!!selectedDocuments.length && (
-                <div className="mt-3 w-full max-w-xl rounded-md border border-white/10 bg-black/30 p-3 text-xs text-zinc-300">
-                  <p className="font-medium text-zinc-100">Selected files ({selectedDocuments.length}/3)</p>
-                  <ul className="mt-1 space-y-1">
-                    {selectedDocuments.map((file) => (
-                      <li key={`${file.name}-${file.size}-${file.lastModified}`} className="truncate">
-                        {file.name}
-                      </li>
-                    ))}
-                  </ul>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDocuments([])}
-                    className="mt-2 rounded border border-white/15 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
-                    disabled={isVerifyingDocs}
-                  >
-                    Clear selected files
-                  </button>
+                <div className="mt-6 w-full max-w-md divide-y divide-cyan-100 rounded-xl border border-cyan-100 bg-white p-2 shadow-sm">
+                  <div className="flex flex-col gap-2 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Selected files ({selectedDocuments.length}/3)</p>
+                    <ul className="space-y-1.5">
+                      {selectedDocuments.map((file) => (
+                        <li key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-2 truncate text-[11px] font-medium text-slate-600">
+                          <span className="h-1 w-1 rounded-full bg-cyan-400" />
+                          {file.name}
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDocuments([])}
+                      className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+                      disabled={isVerifyingDocs}
+                    >
+                      Clear Selection
+                    </button>
+                  </div>
                 </div>
               )}
+              
               {isVerifyingDocs ? (
-                <div className="mt-4 flex items-center gap-2 text-sm text-cyan-400">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-                  Verifying documents with AI...
+                <div className="mt-5 flex items-center gap-3 rounded-full bg-cyan-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-cyan-200">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  AI EXTRACTING...
                 </div>
               ) : (
-                <label className="mt-4 cursor-pointer rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500">
-                  <span>Add Files (Max 3)</span>
+                <label className="mt-6 cursor-pointer rounded-2xl bg-gradient-to-r from-cyan-600 to-sky-600 px-8 py-3 text-sm font-bold text-white shadow-lg shadow-cyan-200 transition-all hover:-translate-y-0.5 hover:shadow-cyan-300 active:translate-y-0 active:scale-95">
+                  <span>SELECT FILES</span>
                   <input
                     type="file"
                     className="hidden"
@@ -1840,117 +1964,188 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
+        {isDigitalPath && (
+          <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">AI Assessment Report</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Official document verification and identity matching metrics.
+            </p>
+            
+            <div className="mt-5 rounded-2xl border border-cyan-100 bg-cyan-50/30 p-4">
+              <p className={`text-xs font-bold uppercase tracking-wider ${aiAssessmentReady ? "text-emerald-600" : "text-amber-600"}`}>
+                STATUS: {aiAssessmentReady ? "Ready to download" : "Pending verification"}
+              </p>
+              
+              {aiAssessmentReport ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl bg-white p-3 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Overall Score</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">{aiAssessmentReport.overall.score}%</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Document accuracy</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">{aiAssessmentReport.documents?.confidence ?? "---"}%</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">ID-Face Match</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">{aiAssessmentReport.identity?.matchScore ?? "---"}%</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex h-24 items-center justify-center rounded-xl border border-dashed border-cyan-200 text-xs font-medium text-cyan-700/50">
+                  Waiting for document & ID upload...
+                </div>
+              )}
+              
+              {aiAssessmentReport?.disclaimer && (
+                <p className="mt-4 text-[10px] italic leading-relaxed text-slate-400">{aiAssessmentReport.disclaimer}</p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void downloadAiAssessmentReport()}
+              disabled={!aiAssessmentReady || downloadingAiReport}
+              className="mt-6 w-full rounded-2xl bg-slate-900 py-3 text-sm font-bold text-white transition-all hover:bg-slate-800 disabled:opacity-40"
+            >
+              {downloadingAiReport ? "PREPARING PDF..." : "DOWNLOAD FULL REPORT"}
+            </button>
+          </section>
+        )}
+
         {cert && (
           <CertificateCard cert={cert} verifyUrl={verifyUrl || `/verify/${cert.id}`} />
         )}
 
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h2 className="text-lg font-semibold text-white">Payment and final gate</h2>
-          <p className="mt-1 text-xs text-zinc-400">
-            Payment semantics (mocked): $100 hold → capture on approval → refund on rejection.
+        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+          <h2 className="text-xl font-bold tracking-tight text-slate-900">Final Gate · Payment</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Secure $100 hold captured on approval or fully refunded on rejection.
           </p>
-          <p className="mt-1 text-xs text-cyan-200">
-            Current payment state: {workflow?.payment.state ?? "not_started"}
-          </p>
-          {isSelfPath && (
-            <p className="mt-2 text-xs text-emerald-300">
-              Self-certification path selected: payment hold is skipped for this path.
-            </p>
-          )}
-          {!paymentUnlocked && (
-            <p className="mt-2 text-xs text-amber-300">
-              Payment unlocks after voice + vision steps are completed.
-            </p>
-          )}
-          {!isSelfPath && (
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <input
-                className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
-                placeholder="Card number"
-                value={cardNumber}
-                onChange={(e) => setCardNumber(e.target.value)}
-                disabled={!paymentUnlocked}
-              />
-              <input
-                className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
-                placeholder="MM/YY"
-                value={cardExpiry}
-                onChange={(e) => setCardExpiry(e.target.value)}
-                disabled={!paymentUnlocked}
-              />
-              <input
-                className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm"
-                placeholder="CVV"
-                value={cardCvv}
-                onChange={(e) => setCardCvv(e.target.value)}
-                disabled={!paymentUnlocked}
-              />
+          
+          <div className="mt-5 space-y-4">
+            <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold uppercase tracking-wider ${
+              workflow?.payment.state === "hold_placed" ? "border-emerald-100 bg-emerald-50 text-emerald-600" : "border-cyan-100 bg-cyan-50 text-cyan-600"
+            }`}>
+              STAKE STATE: {workflow?.payment.state ?? "not_started"}
             </div>
-          )}
-          {!isSelfPath && (
-            <label className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
-              <input
-                type="checkbox"
-                checked={paid}
-                disabled={!paymentUnlocked || !mockCardValid}
-                onChange={(e) => {
-                  const nextPaid = e.target.checked;
-                  setPaid(nextPaid);
-                  void saveRegistration(registration, nextPaid);
-                  if (sessionId) {
-                    void fetch("/api/workflow/transition", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        sessionId,
-                        action: "payment_transition",
-                        paymentState: nextPaid ? "hold_placed" : "not_started",
-                      }),
-                    }).then(() => void refreshSession(sessionId));
-                  }
-                }}
-              />
-              Mark payment as verified (demo)
-            </label>
-          )}
-          {!isSelfPath && !mockCardValid && (
-            <p className="mt-2 text-xs text-zinc-500">Enter valid mock card details to enable payment.</p>
-          )}
-          {!!anchorBlockers.length && (
-            <p className="mt-2 text-xs text-rose-300">
-              Anchor blocked by server: {Array.from(new Set(anchorBlockers)).join(", ")}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              if (!readinessForIssue) {
-                const pending = mergedBlockers.join(", ");
-                const message = `Cannot issue certificate yet. Pending: ${pending}`;
-                setAssistant(message);
-                speak(message);
-                return;
-              }
-              setStage("anchoring");
-              void anchorCert();
-            }}
-            disabled={anchoring || Boolean(cert)}
-            className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-40"
-          >
-            {anchoring ? "Issuing certificate…" : cert ? "Certificate issued" : "Issue certificate"}
-          </button>
+
+            {isSelfPath && (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 text-xs font-medium text-emerald-700">
+                <span className="font-bold">✓ SELF-CERTIFICATION:</span> Payment hold is waived for this path.
+              </div>
+            )}
+
+            {!isSelfPath && (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <input
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
+                    placeholder="Card number"
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(e.target.value)}
+                    disabled={!paymentUnlocked}
+                  />
+                  <input
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
+                    placeholder="MM/YY"
+                    value={cardExpiry}
+                    onChange={(e) => setCardExpiry(e.target.value)}
+                    disabled={!paymentUnlocked}
+                  />
+                  <input
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
+                    placeholder="CVV"
+                    value={cardCvv}
+                    onChange={(e) => setCardCvv(e.target.value)}
+                    disabled={!paymentUnlocked}
+                  />
+                </div>
+                
+                <label className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-4 transition-all ${
+                  !paymentUnlocked || !mockCardValid ? "border-slate-100 bg-slate-50/50 opacity-50 grayscale" : "border-cyan-100 bg-white shadow-sm hover:border-cyan-200"
+                }`}>
+                  <div className="relative flex h-5 w-5 items-center justify-center">
+                    <input
+                      type="checkbox"
+                      className="peer h-5 w-5 cursor-pointer appearance-none rounded-lg border-2 border-slate-200 bg-white transition-all checked:border-cyan-500 checked:bg-cyan-500 focus:outline-none"
+                      checked={paid}
+                      disabled={!paymentUnlocked || !mockCardValid}
+                      onChange={(e) => {
+                        const nextPaid = e.target.checked;
+                        setPaid(nextPaid);
+                        void saveRegistration(registration, nextPaid);
+                        if (sessionId) {
+                          void fetch("/api/workflow/transition", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              sessionId,
+                              action: "payment_transition",
+                              paymentState: nextPaid ? "hold_placed" : "not_started",
+                            }),
+                          }).then(() => void refreshSession(sessionId));
+                        }
+                      }}
+                    />
+                    <svg className="pointer-events-none absolute h-3.5 w-3.5 text-white opacity-0 transition-opacity peer-checked:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Verify Payment Hold</p>
+                    <p className="text-[11px] font-medium text-slate-400">Place $100 hold for verification</p>
+                  </div>
+                </label>
+                
+                {!paymentUnlocked && (
+                  <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-amber-600">
+                    <span className="text-xs">🔒</span> UNLOCKS AFTER VOICE · VISION STEPS
+                  </p>
+                )}
+                {!mockCardValid && paymentUnlocked && (
+                  <p className="text-[10px] font-medium italic text-slate-400 px-1">Enter any valid digits for mock card details.</p>
+                )}
+              </div>
+            )}
+
+            {!!anchorBlockers.length && (
+              <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-3 text-xs font-medium text-rose-700">
+                <p className="font-bold uppercase tracking-wider mb-1">Issue Blocked:</p>
+                <div className="flex flex-wrap gap-1">
+                  {Array.from(new Set(anchorBlockers)).map(b => (
+                    <span key={b} className="rounded-md bg-white/50 px-1.5 py-0.5 border border-rose-100">{b}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!readinessForIssue) {
+                  const pending = mergedBlockers.join(", ");
+                  const message = `Cannot issue certificate yet. Pending: ${pending}`;
+                  setAssistant(message);
+                  speak(message);
+                  return;
+                }
+                setStage("anchoring");
+                void anchorCert();
+              }}
+              disabled={anchoring || Boolean(cert)}
+              className={`mt-4 w-full rounded-2xl py-4 text-sm font-black uppercase tracking-widest text-white transition-all shadow-lg ${
+                anchoring || Boolean(cert) || !readinessForIssue
+                  ? "bg-slate-200 text-slate-400 shadow-none"
+                  : "bg-gradient-to-r from-emerald-500 to-teal-500 shadow-emerald-200 hover:-translate-y-0.5 hover:shadow-emerald-300 active:translate-y-0"
+              }`}
+            >
+              {anchoring ? "ISSUING CERTIFICATE..." : cert ? "CERTIFICATE ISSUED" : "ISSUE CERTIFICATE"}
+            </button>
+          </div>
         </section>
       </main>
 
-      <aside className="w-full shrink-0 lg:w-80">
-        <TerminalFeed lines={lines} />
-        <p className="mt-3 text-[10px] text-zinc-600">
-          Session: {sessionId?.slice(0, 8) ?? "…"}… · Polls server for live lines (demo).
-        </p>
-        <p className="mt-1 text-[10px] text-zinc-700">
-          Frequent <code className="font-mono">/api/session</code> entries are heartbeat polls every 2.5s.
-        </p>
-      </aside>
     </div>
   );
 }

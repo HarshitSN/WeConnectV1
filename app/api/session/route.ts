@@ -37,6 +37,7 @@ export async function GET(req: Request) {
     messages: s.messages,
     lastVision: s.lastVision,
     attestation: s.attestation,
+    aiAssessmentReport: s.aiAssessmentReport,
     geminiFallbacks: s.geminiFallbacks ?? [],
     workflow,
     updatedAt: s.updatedAt,

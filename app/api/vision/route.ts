@@ -15,8 +15,10 @@ import {
   setSessionStage,
   setSessionVisionChecks,
   setVisionResult,
+  upsertSessionAiIdentityAssessment,
 } from "@/lib/session-store";
 import type { SessionStage } from "@/lib/types";
+import { patchDomainState } from "@/lib/store/domain-store";
 
 const GEMINI_ROUTE_TIMEOUT_MS = Number(process.env.GEMINI_CALL_TIMEOUT_MS || 12000);
 
@@ -183,6 +185,26 @@ export async function POST(req: Request) {
       idPassed: passed,
       idConfidence: confidence,
     });
+    upsertSessionAiIdentityAssessment(sessionId, {
+      idFaceMatch: passed,
+      matchScore: confidence,
+      confidence,
+      livenessHint: String(result.livenessHint ?? ""),
+      nameGuess: String(result.nameGuess ?? ""),
+      warningCode: gate.warningCode,
+      nameMatchBypassed: gate.nameMatchBypassed,
+      checkedAt: new Date().toISOString(),
+    });
+    const refreshed = getSession(sessionId)?.aiAssessmentReport;
+    if (refreshed) {
+      patchDomainState(sessionId, {
+        aiAssessmentSummary: {
+          status: refreshed.overall.status,
+          score: refreshed.overall.score,
+          updatedAt: refreshed.generatedAt,
+        },
+      });
+    }
 
     return NextResponse.json({
       ok: true,
