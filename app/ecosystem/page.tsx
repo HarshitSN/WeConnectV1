@@ -22,14 +22,14 @@ export default function EcosystemPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50">
       <Navbar />
-      <main className="max-w-5xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="mb-8">
-          <h1 className="font-display font-bold text-3xl text-zinc-50 mb-2">Ecosystem</h1>
+          <h1 className="font-display font-bold text-2xl sm:text-3xl text-zinc-50 mb-2">Ecosystem</h1>
           <p className="text-zinc-400 max-w-xl">WEConnect brings together suppliers, buyers, certifiers, and markets into one interconnected platform for inclusive procurement.</p>
         </div>
 
         {/* Nodes */}
-        <div className="grid md:grid-cols-2 gap-5 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 mb-10">
           {NODES.map(n => (
             <div key={n.title} className="rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-50 shadow p-6 hover:shadow-md hover:bg-zinc-800/50 transition-all flex items-start gap-4">
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border border-zinc-700 ${n.color}`}><n.icon size={22}/></div>
@@ -47,7 +47,7 @@ export default function EcosystemPage() {
         {/* Data moat */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-50 shadow p-6 mb-8">
           <h2 className="font-display font-bold text-xl text-zinc-100 mb-5">Platform Data Moat</h2>
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5">
             {[
               { icon: Users,   title: "Proprietary WOB Database", type: "Network Effects + Switching Costs", defensibility: "HIGH", desc: "100K+ verified WOB profiles (Year 3 target). Blockchain-anchored provenance cannot be forged." },
               { icon: Cpu,     title: "AI Training Data",          type: "Data Flywheel + Proprietary Tech", defensibility: "VERY HIGH", desc: "Millions of labeled documents for fraud detection. Models improve with scale — compounding advantage." },
@@ -68,14 +68,14 @@ export default function EcosystemPage() {
 
         {/* NewCo Expansion */}
         <div className="rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-50 shadow p-6 mb-8">
-          <div className="flex items-start justify-between mb-5">
+          <div className="flex flex-col sm:flex-row items-start justify-between gap-3 mb-5">
             <div>
               <h2 className="font-display font-bold text-xl text-zinc-100">NewCo Ecosystem Expansion</h2>
               <p className="text-sm text-zinc-400 mt-1">WEC as blueprint for multi-certification global community</p>
             </div>
             <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-zinc-800 text-zinc-300 border-zinc-700">Phase 2</span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {NEWCO.map((item, i) => (
               <div key={item} className={`flex items-center gap-2 p-3 rounded-xl border text-sm ${i===0?"border-zinc-700 bg-zinc-800 font-semibold text-zinc-100":"border-zinc-800 text-zinc-400"}`}>
                 <CheckCircle size={13} className={i===0?"text-zinc-100":"text-zinc-600"}/>{item}
@@ -85,7 +85,7 @@ export default function EcosystemPage() {
         </div>
 
         {/* CTA */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-10 text-center">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-10 text-center">
           <h2 className="font-display font-bold text-2xl text-zinc-50 mb-3">Join the WEConnect Ecosystem</h2>
           <p className="text-zinc-400 mb-6 max-w-md mx-auto">Get certified and start connecting with procurement teams from global corporations.</p>
           <Link href="/dashboard" className="inline-flex items-center justify-center rounded-md text-sm transition-colors bg-zinc-100 text-zinc-950 hover:bg-zinc-200 font-bold px-6 py-3 gap-2">

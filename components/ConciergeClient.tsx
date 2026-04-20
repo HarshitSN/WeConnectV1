@@ -1220,7 +1220,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
 
       <main className="mx-auto flex w-full max-w-6xl min-w-0 flex-1 flex-col gap-5">
         {!embed && (
-          <header className="rounded-2xl border border-slate-200 bg-white/85 px-5 py-3 shadow-[0_14px_36px_rgb(15,23,42,0.12)] backdrop-blur-xl">
+          <header className="rounded-2xl border border-slate-200 bg-white/85 px-4 sm:px-5 py-3 shadow-[0_14px_36px_rgb(15,23,42,0.12)] backdrop-blur-xl">
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
               <span className="font-medium text-slate-800">WEC-Guardian · demonstration only</span>
             <div className="flex gap-3">
@@ -1235,7 +1235,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           </header>
         )}
 
-        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_16px_40px_rgb(15,23,42,0.12)] backdrop-blur-xl">
+        <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_16px_40px_rgb(15,23,42,0.12)] backdrop-blur-xl">
           <p className="text-base font-bold text-slate-900">60 second certificate process</p>
           <p className="mt-1 text-xs text-slate-600">
             Build trust from self-declared profile to digitally certified supplier.
@@ -1256,7 +1256,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             {fallbackReasonGuidance(quotaFallbackReason, quotaFallbackSubtype)}
           </p>
         )}
-        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+        <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
           <p className="text-base font-bold text-slate-900">Step 1: Choose certification path</p>
           <p className="mt-1 text-xs text-slate-600">
             Current:{" "}
@@ -1293,7 +1293,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             </button>
           </div>
         </section>
-        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+        <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
           <h2 className="text-xl font-bold text-slate-900">Step 2: Proactive intake</h2>
           <p className="mt-1 text-sm text-slate-600">
             Enter a business name or URL. Try <strong className="text-slate-900">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
@@ -1315,7 +1315,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             </button>
           </div>
         </section>
-        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/60 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <h2 className="text-xl font-bold tracking-tight text-slate-800">Guided Flow</h2>
           <p className="mt-3 text-sm font-semibold text-cyan-900">{nextAction.title}</p>
           <p className="mt-1 text-xs font-medium text-slate-600">{nextAction.detail}</p>
@@ -1345,8 +1345,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-4">
+        <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
             <div>
               <h2 className="text-xl font-bold tracking-tight text-slate-800">Advanced Workspace</h2>
               <p className="mt-1 text-xs font-medium text-slate-500">
@@ -1527,7 +1527,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+        <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
           {false && (
             <>
               <h2 className="text-lg font-semibold text-white">Intake details and prefill review</h2>
@@ -1837,9 +1837,9 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-            <h2 className="text-xl font-bold tracking-tight text-slate-900">Voice · Vision</h2>
+            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">Voice · Vision</h2>
             <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
               <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
               Stage: {stage}
@@ -1877,7 +1877,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             )}
           </div>
 
-          <div className="mt-6 flex gap-3">
+          <div className="mt-5 sm:mt-6 flex flex-col sm:flex-row gap-3">
             <VoiceConcierge
               onTranscript={(t) => void onVoice(t)}
               disabled={!sessionId || !match || stage === "complete"}
@@ -1965,7 +1965,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         </section>
 
         {isDigitalPath && (
-          <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+          <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
             <h2 className="text-xl font-bold tracking-tight text-slate-900">AI Assessment Report</h2>
             <p className="mt-1 text-sm text-slate-500">
               Official document verification and identity matching metrics.
@@ -1977,7 +1977,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               </p>
               
               {aiAssessmentReport ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-3">
                   <div className="flex flex-col gap-1">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Overall Score</p>
                     <p className="text-2xl font-black text-slate-900">{aiAssessmentReport.overall.score}%</p>
@@ -2017,7 +2017,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           <CertificateCard cert={cert} verifyUrl={verifyUrl || `/verify/${cert.id}`} />
         )}
 
-        <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <h2 className="text-xl font-bold tracking-tight text-slate-900">Final Gate · Payment</h2>
           <p className="mt-1 text-sm text-slate-500">
             Secure $100 hold captured on approval or fully refunded on rejection.
@@ -2038,7 +2038,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
 
             {!isSelfPath && (
               <div className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
                   <input
                     className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/10 placeholder:text-slate-400"
                     placeholder="Card number"

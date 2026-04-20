@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles, Shield, Globe, ArrowRight, CheckCircle, Cpu, Network, FileText, Settings, Users } from "lucide-react";
+import { Sparkles, Shield, Globe, ArrowRight, CheckCircle, Cpu, Network, FileText, Settings, Users, Menu, X } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { pageEnter, panelLift, staggerContainer } from "@/lib/motion";
+import { useState } from "react";
 
 const FEATURES = [
   { icon: Sparkles, bg: "bg-zinc-800", color: "text-zinc-100", title: "AI-Guided Process", desc: "Our intelligent assistant guides you through every step, making certification simple and stress-free." },
@@ -40,6 +41,7 @@ const DOC_LINKS = [
 
 export default function LandingPage() {
   const prefersReducedMotion = useReducedMotion();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <motion.main
@@ -49,68 +51,91 @@ export default function LandingPage() {
       animate="visible"
     >
       {/* Nav */}
-      <header className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+      <header className="max-w-5xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 bg-zinc-800 rounded-lg flex items-center justify-center border border-zinc-700">
             <span className="text-zinc-100 text-xs font-bold">WE</span>
           </div>
           <span className="font-bold text-zinc-100">WEConnect</span>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Desktop nav links */}
+        <div className="hidden sm:flex items-center gap-2">
           <Link href="/ecosystem" className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-zinc-800 hover:bg-zinc-800 hover:text-zinc-50 px-4 py-2">Ecosystem</Link>
           <Link href="/buyer-portal" className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-zinc-800 hover:bg-zinc-800 hover:text-zinc-50 px-4 py-2">Buyer Portal</Link>
           <Link href="/dashboard" className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-zinc-50 text-zinc-950 hover:bg-zinc-200 px-4 py-2">Get Certified →</Link>
         </div>
+
+        {/* Mobile hamburger */}
+        <button
+          type="button"
+          className="sm:hidden flex items-center justify-center w-10 h-10 rounded-lg text-zinc-300 hover:bg-zinc-800 transition-colors"
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label="Toggle menu"
+        >
+          {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+        </button>
       </header>
 
+      {/* Mobile dropdown nav */}
+      {mobileMenuOpen && (
+        <div className="sm:hidden border-t border-zinc-800 bg-zinc-900/95 backdrop-blur-xl animate-[slideDown_0.2s_ease-out] mx-4 rounded-xl mb-4">
+          <nav className="flex flex-col gap-1 px-3 py-3">
+            <Link href="/ecosystem" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2 text-sm font-medium text-zinc-300 hover:text-zinc-50 px-4 py-3 rounded-lg hover:bg-zinc-800 transition-colors">Ecosystem</Link>
+            <Link href="/buyer-portal" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2 text-sm font-medium text-zinc-300 hover:text-zinc-50 px-4 py-3 rounded-lg hover:bg-zinc-800 transition-colors">Buyer Portal</Link>
+            <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2 text-sm font-semibold bg-zinc-50 text-zinc-950 px-4 py-3 rounded-lg mt-1">Get Certified →</Link>
+          </nav>
+        </div>
+      )}
+
       {/* Hero */}
-      <section className="pt-14 pb-16 px-6 text-center max-w-4xl mx-auto">
-        <div className="inline-flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-4 py-1.5 rounded-full text-sm font-medium text-zinc-300 mb-8 shadow-sm">
+      <section className="pt-10 sm:pt-14 pb-12 sm:pb-16 px-4 sm:px-6 text-center max-w-4xl mx-auto">
+        <div className="inline-flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium text-zinc-300 mb-6 sm:mb-8 shadow-sm">
           <Sparkles size={13} className="text-zinc-400" />
           AI-Powered Certification Platform
         </div>
         <div className="mb-4 text-xs text-zinc-500">
           Multi-language ready (demo): English, Hindi, Spanish
         </div>
-        <h1 className="font-display font-bold text-5xl md:text-6xl text-zinc-50 leading-tight mb-4">
+        <h1 className="font-display font-bold text-3xl sm:text-5xl md:text-6xl text-zinc-50 leading-tight mb-4">
           WEConnect Smart Supply<br />
           <span className="text-zinc-400">For Impact</span>
         </h1>
-        <p className="text-zinc-400 text-lg max-w-2xl mx-auto mb-10 leading-relaxed">
+        <p className="text-zinc-400 text-base sm:text-lg max-w-2xl mx-auto mb-8 sm:mb-10 leading-relaxed px-2">
           Empowering Small & Medium Enterprises and Women-Owned Businesses with accessible, AI-driven certification. Get discovered by corporate buyers and unlock new opportunities.
         </p>
-        <div className="flex items-center justify-center gap-3">
-          <Link href="/dashboard" className="inline-flex items-center justify-center rounded-md text-base font-medium transition-colors bg-zinc-50 text-zinc-950 hover:bg-zinc-200 px-8 py-4">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link href="/dashboard" className="w-full sm:w-auto inline-flex items-center justify-center rounded-md text-base font-medium transition-colors bg-zinc-50 text-zinc-950 hover:bg-zinc-200 px-8 py-4">
             Start Your Journey <ArrowRight size={18} className="ml-2" />
           </Link>
-          <Link href="/buyer-portal" className="inline-flex items-center justify-center rounded-md text-base font-medium transition-colors border border-zinc-800 hover:bg-zinc-800 hover:text-zinc-50 px-6 py-4">
-            I'm a Buyer
+          <Link href="/buyer-portal" className="w-full sm:w-auto inline-flex items-center justify-center rounded-md text-base font-medium transition-colors border border-zinc-800 hover:bg-zinc-800 hover:text-zinc-50 px-6 py-4">
+            I&apos;m a Buyer
           </Link>
         </div>
       </section>
 
       {/* Stats */}
-      <section className="max-w-4xl mx-auto px-6 pb-14">
-        <motion.div className="grid grid-cols-4 gap-4" variants={staggerContainer(0.06)} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.4 }}>
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 pb-14">
+        <motion.div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4" variants={staggerContainer(0.06)} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.4 }}>
           {STATS.map(s => (
-            <motion.div key={s.label} variants={panelLift} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 text-center">
-              <div className="font-display font-bold text-3xl text-zinc-100">{s.value}</div>
-              <div className="text-xs text-zinc-500 mt-1">{s.label}</div>
+            <motion.div key={s.label} variants={panelLift} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 text-center">
+              <div className="font-display font-bold text-2xl sm:text-3xl text-zinc-100">{s.value}</div>
+              <div className="text-[10px] sm:text-xs text-zinc-500 mt-1">{s.label}</div>
             </motion.div>
           ))}
         </motion.div>
       </section>
 
       {/* Feature cards */}
-      <section className="max-w-5xl mx-auto px-6 pb-16">
-        <motion.div className="grid md:grid-cols-3 gap-5" variants={staggerContainer(0.08)} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }}>
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+        <motion.div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5" variants={staggerContainer(0.08)} initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }}>
           {FEATURES.map(f => (
             <motion.div
               key={f.title}
               variants={panelLift}
               whileHover={prefersReducedMotion ? undefined : { y: -4, scale: 1.01 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
-              className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 hover:border-zinc-700 transition-colors cursor-pointer"
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 sm:p-6 hover:border-zinc-700 transition-colors cursor-pointer"
             >
               <div className={`w-12 h-12 ${f.bg} border border-zinc-700 rounded-xl flex items-center justify-center mb-4`}>
                 <f.icon size={22} className={f.color} />
@@ -123,28 +148,28 @@ export default function LandingPage() {
       </section>
 
       {/* 7-Step Journey */}
-      <section className="max-w-5xl mx-auto px-6 pb-20">
-        <h2 className="font-display font-bold text-2xl text-center text-zinc-100 mb-10">Your 7-Step Certification Journey</h2>
-        <div className="flex items-end justify-center gap-4 flex-wrap">
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
+        <h2 className="font-display font-bold text-xl sm:text-2xl text-center text-zinc-100 mb-8 sm:mb-10">Your 7-Step Certification Journey</h2>
+        <div className="flex items-end justify-center gap-3 sm:gap-4 flex-wrap">
           {JOURNEY.map(step => (
-            <div key={step.id} className="flex flex-col items-center gap-2">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg
+            <div key={step.id} className="flex flex-col items-center gap-1.5 sm:gap-2">
+              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-base sm:text-lg
                 ${step.active ? "bg-zinc-100 text-zinc-950" : "bg-zinc-800 text-zinc-500 border border-zinc-700"}`}>
                 {step.id}
               </div>
-              <span className={`text-xs font-medium text-center ${step.active ? "text-zinc-300" : "text-zinc-600"}`}>{step.label}</span>
-              {step.future && <span className="text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded-full">Future</span>}
+              <span className={`text-[10px] sm:text-xs font-medium text-center ${step.active ? "text-zinc-300" : "text-zinc-600"}`}>{step.label}</span>
+              {step.future && <span className="text-[9px] sm:text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded-full">Future</span>}
             </div>
           ))}
         </div>
       </section>
 
       {/* Market context */}
-      <section className="max-w-5xl mx-auto px-6 pb-16">
-        <div className="bg-zinc-900 rounded-3xl border border-zinc-800 p-10">
-          <h2 className="font-display font-bold text-2xl text-zinc-100 mb-2">Why WOB Certification Matters</h2>
-          <p className="text-zinc-400 mb-8 max-w-2xl">Gender-responsive procurement has evolved from a CSR initiative into a core component of sustainable finance and global supply chain resilience.</p>
-          <div className="grid md:grid-cols-3 gap-6">
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+        <div className="bg-zinc-900 rounded-2xl sm:rounded-3xl border border-zinc-800 p-6 sm:p-10">
+          <h2 className="font-display font-bold text-xl sm:text-2xl text-zinc-100 mb-2">Why WOB Certification Matters</h2>
+          <p className="text-zinc-400 mb-6 sm:mb-8 max-w-2xl text-sm sm:text-base">Gender-responsive procurement has evolved from a CSR initiative into a core component of sustainable finance and global supply chain resilience.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5 sm:gap-6">
             {[
               { title: "Supply Chain Resilience", desc: "Enterprises that actively source from WOBs diversify their vendor base and reduce structural risk." },
               { title: "Regulatory Alignment", desc: "CSRD and GDPR mandates drive mandatory disclosures — certified WOBs are procurement-ready by default." },
@@ -163,15 +188,17 @@ export default function LandingPage() {
       </section>
 
       {/* Doc footer */}
-      <footer className="border-t border-zinc-800 bg-zinc-950 py-4 px-6">
-        <div className="max-w-5xl mx-auto flex items-center gap-5 overflow-x-auto">
-          <span className="text-xs text-zinc-500 shrink-0 font-medium">Platform Documentation:</span>
-          {DOC_LINKS.map(d => (
-            <Link key={d.label} href={d.href}
-              className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-100 transition-colors whitespace-nowrap">
-              <d.icon size={12} className="text-zinc-500" />{d.label}
-            </Link>
-          ))}
+      <footer className="border-t border-zinc-800 bg-zinc-950 py-4 px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto">
+          <span className="text-xs text-zinc-500 font-medium block mb-2 sm:mb-0 sm:inline sm:mr-4">Platform Documentation:</span>
+          <div className="flex flex-wrap gap-x-4 gap-y-2 sm:inline-flex sm:items-center sm:gap-5">
+            {DOC_LINKS.map(d => (
+              <Link key={d.label} href={d.href}
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-100 transition-colors whitespace-nowrap">
+                <d.icon size={12} className="text-zinc-500" />{d.label}
+              </Link>
+            ))}
+          </div>
         </div>
       </footer>
     </motion.main>

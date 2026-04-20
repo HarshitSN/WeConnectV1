@@ -214,13 +214,13 @@ export default function BuyerPortalPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50">
       <Navbar />
-      <main className="mx-auto max-w-7xl px-6 py-8">
-        <div className="mb-6 flex items-center justify-between">
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8">
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-bold text-zinc-50">Buyer Portal</h1>
+            <h1 className="font-display text-xl sm:text-2xl font-bold text-zinc-50">Buyer Portal</h1>
             <p className="mt-0.5 text-sm text-zinc-400">Certification-prioritized supplier discovery with AI match scoring</p>
           </div>
-          <button className="inline-flex items-center justify-center gap-2 rounded-md border border-zinc-800 px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800 hover:text-zinc-50">
+          <button className="inline-flex items-center justify-center gap-2 rounded-md border border-zinc-800 px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800 hover:text-zinc-50 w-full sm:w-auto">
             <Download size={14} />Export CSV
           </button>
         </div>
@@ -234,7 +234,7 @@ export default function BuyerPortalPage() {
             <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-zinc-200">
               <Sparkles size={14} className="text-cyan-400" /> Top recommended suppliers based on your requirement
             </p>
-            <div className="grid gap-2 md:grid-cols-3">
+            <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
               {recommendations.map((row) => (
                 <button
                   key={row.supplier.id}
@@ -249,7 +249,7 @@ export default function BuyerPortalPage() {
           </section>
         )}
 
-        <div className="mb-4 flex gap-3">
+        <div className="mb-4 flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input
@@ -286,7 +286,7 @@ export default function BuyerPortalPage() {
                 <X size={11} />Clear all
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-4 lg:grid-cols-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 lg:grid-cols-5">
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-zinc-300">Cert Type</label>
                 <select className="flex h-9 w-full cursor-pointer appearance-none rounded-md border border-zinc-800 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300" value={filters.cert_type} onChange={(e) => set("cert_type", e.target.value)}>
@@ -334,8 +334,8 @@ export default function BuyerPortalPage() {
           {loading ? "Loading..." : `${rows.length} supplier${rows.length !== 1 ? "s" : ""} found`}
         </p>
 
-        <div className="grid grid-cols-12 gap-5">
-          <div className={cn("space-y-3", supplier ? "col-span-7" : "col-span-12 grid grid-cols-1 gap-4 space-y-0 md:grid-cols-2 lg:grid-cols-3")}>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className={cn("space-y-3", supplier ? "lg:col-span-7" : "lg:col-span-12 grid grid-cols-1 gap-4 space-y-0 sm:grid-cols-2 lg:grid-cols-3")}>
             {rows.map((row) => (
               <div key={row.supplier.id} onClick={() => setSelected(row.supplier.id === selected ? null : row.supplier.id)} className={cn("cursor-pointer rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-zinc-50 shadow transition-all hover:bg-zinc-800/50 hover:shadow-md", selected === row.supplier.id && "ring-2 ring-zinc-500")}>
                 <div className="mb-2 flex items-start justify-between">
@@ -382,7 +382,7 @@ export default function BuyerPortalPage() {
             ))}
 
             {!loading && rows.length === 0 && (
-              <div className={cn("py-16 text-center text-zinc-500", !supplier && "col-span-3")}>
+              <div className={cn("py-16 text-center text-zinc-500", !supplier && "sm:col-span-2 lg:col-span-3")}>
                 <Search size={32} className="mx-auto mb-2 text-zinc-700" />
                 <p className="text-sm font-medium">No suppliers match your filters</p>
               </div>
@@ -390,7 +390,7 @@ export default function BuyerPortalPage() {
           </div>
 
           {supplier && (
-            <div className="col-span-5">
+            <div className="lg:col-span-5">
               <div className="sticky top-24 space-y-4 rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-zinc-50 shadow">
                 <div className="flex items-start justify-between">
                   <div>
@@ -454,7 +454,7 @@ export default function BuyerPortalPage() {
                   <p>Last verified: {supplier.profile.lastVerified || "N/A"}</p>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <button
                     type="button"
                     onClick={() => void runVerifyCert()}

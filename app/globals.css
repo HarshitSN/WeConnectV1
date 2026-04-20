@@ -16,6 +16,12 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent horizontal overflow on mobile */
+html, body {
+  overflow-x: hidden;
 }
 
 @keyframes concierge-scan {
@@ -36,10 +42,36 @@ body {
   }
 }
 
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .animate-scan {
   animation: concierge-scan 2.2s linear infinite;
 }
 
 .animate-\[shimmer_1\.2s_ease-in-out_infinite\] {
   animation: concierge-shimmer 1.2s ease-in-out infinite;
+}
+
+.animate-\[slideDown_0\.2s_ease-out\] {
+  animation: slideDown 0.2s ease-out;
+}
+
+/* Mobile-friendly touch targets */
+@media (max-width: 640px) {
+  button, a, input, select, textarea, label {
+    min-height: 44px;
+  }
+  
+  input, select, textarea {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
 }

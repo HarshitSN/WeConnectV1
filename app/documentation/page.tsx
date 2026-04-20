@@ -26,17 +26,17 @@ export default function DocumentationPage() {
   return (
     <div className="min-h-screen bg-surface">
       <Navbar />
-      <main className="max-w-5xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex items-center gap-3 mb-8">
           <BookOpen size={24} className="text-brand-indigo" />
           <div>
-            <h1 className="font-display font-bold text-2xl text-gray-900">Documentation</h1>
+            <h1 className="font-display font-bold text-xl sm:text-2xl text-gray-900">Documentation</h1>
             <p className="text-gray-500 text-sm">Platform docs, technical specs, and API reference</p>
           </div>
         </div>
 
         {/* Doc cards */}
-        <div className="grid md:grid-cols-2 gap-4 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
           {DOCS.map(d => (
             <div key={d.title} className="card-hover group">
               <div className="flex items-start gap-4">
@@ -85,7 +85,7 @@ export default function DocumentationPage() {
         {/* Compliance */}
         <div className="card">
           <h2 className="section-title mb-4">Compliance & Security</h2>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {[
               { title: "SOC 2 Type II", timeline: "Months 13–18", desc: "Annual audit for security, availability, and confidentiality." },
               { title: "GDPR & CCPA",   timeline: "Active",       desc: "Data privacy, right to deletion, and data portability." },
