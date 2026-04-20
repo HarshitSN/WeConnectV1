@@ -234,7 +234,7 @@ export async function GET(req: Request) {
     const companyToken = sanitizeToken(session.registration?.business_name ?? "supplier");
     const filename = `ai-assessment-${companyToken}-${session.id.slice(0, 8)}.pdf`;
 
-    return new NextResponse(bytes, {
+    return new NextResponse(Buffer.from(bytes) as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${filename}"`,

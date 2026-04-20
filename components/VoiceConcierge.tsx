@@ -39,42 +39,32 @@ export function VoiceConcierge({ onTranscript, disabled }: Props) {
   }, [onTranscript]);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col">
       {!supported && (
-        <p className="text-xs text-amber-400">
-          Speech recognition is not available in this browser. Try Chrome on desktop or Android.
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-amber-600">
+          Speech recognition is not available in this browser.
         </p>
       )}
       <button
         type="button"
         disabled={disabled || !supported}
         onClick={listen}
-        className="rounded-full border border-violet-400/40 bg-violet-500/20 px-5 py-2 text-sm font-medium text-violet-100 hover:bg-violet-500/30 disabled:opacity-40"
+        className={`flex items-center gap-2 rounded-2xl px-6 py-3.5 text-sm font-black uppercase tracking-widest transition-all shadow-md ${
+          listening 
+            ? "bg-rose-500 text-white animate-pulse" 
+            : "bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-violet-100 hover:-translate-y-0.5 hover:shadow-violet-200"
+        } disabled:opacity-40 disabled:shadow-none disabled:translate-y-0`}
       >
-        {listening ? "Listening…" : "Speak"}
+        <div className="relative flex h-5 w-5 items-center justify-center">
+          {listening ? (
+            <span className="absolute h-full w-full animate-ping rounded-full bg-white opacity-75"></span>
+          ) : (
+            <span className="h-2 w-2 rounded-full bg-white"></span>
+          )}
+          <span className="relative h-2 w-2 rounded-full bg-white"></span>
+        </div>
+        {listening ? "LISTENING..." : "ACTIVATE VOICE"}
       </button>
-      <div className="flex gap-2">
-        <input
-          className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-violet-500/40 disabled:opacity-50"
-          placeholder="Type instead of speaking"
-          value={manualText}
-          onChange={(e) => setManualText(e.target.value)}
-          disabled={disabled}
-        />
-        <button
-          type="button"
-          disabled={disabled || !manualText.trim()}
-          onClick={() => {
-            const trimmed = manualText.trim();
-            if (!trimmed) return;
-            onTranscript(trimmed);
-            setManualText("");
-          }}
-          className="rounded-lg border border-violet-400/40 bg-violet-500/20 px-3 py-1.5 text-xs font-medium text-violet-100 hover:bg-violet-500/30 disabled:opacity-40"
-        >
-          Send
-        </button>
-      </div>
     </div>
   );
 }

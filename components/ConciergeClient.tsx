@@ -1090,6 +1090,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     stage === "anchoring" ||
     stage === "complete" ||
     Boolean(cert);
+  const showPaymentHint = paymentUnlocked && mockCardValid && !paid;
   const aiAssessmentReady =
     isDigitalPath &&
     aiAssessmentReport?.overall.status === "ready" &&
@@ -1344,7 +1345,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-bold tracking-tight text-slate-800">Advanced Workspace</h2>
@@ -1362,7 +1363,6 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               {showAdvanced ? "HIDE CONTROLS" : "SHOW CONTROLS"}
             </button>
           </div>
- drum
           {isSelfPath && (
             <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100">
               <p className="font-semibold">Upgrade option</p>
@@ -1773,9 +1773,9 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   Country Confidence: {fieldConfidence.country ?? 0}%
                 </div>
               </div>
-              <div className="mt-3 space-y-1 px-1">
-                {fieldEvidence.business_name ? <p className="text-[10px] font-medium text-slate-500 italic">Evidence (Name): {fieldEvidence.business_name}</p> : null}
-                {fieldEvidence.country ? <p className="text-[10px] font-medium text-slate-500 italic">Evidence (Country): {fieldEvidence.country}</p> : null}
+              <div className="mt-3 space-y-1.5 px-1">
+                {fieldEvidence.business_name ? <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">Evidence (Name): <span className="font-medium normal-case italic text-slate-500">{fieldEvidence.business_name}</span></p> : null}
+                {fieldEvidence.country ? <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">Evidence (Country): <span className="font-medium normal-case italic text-slate-500">{fieldEvidence.country}</span></p> : null}
               </div>
               
               {!!discoverCandidates.length && (
@@ -1837,7 +1837,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <h2 className="text-xl font-bold tracking-tight text-slate-900">Voice · Vision</h2>
             <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
@@ -1965,7 +1965,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         </section>
 
         {isDigitalPath && (
-          <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+          <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
             <h2 className="text-xl font-bold tracking-tight text-slate-900">AI Assessment Report</h2>
             <p className="mt-1 text-sm text-slate-500">
               Official document verification and identity matching metrics.
@@ -1978,17 +1978,17 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               
               {aiAssessmentReport ? (
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl bg-white p-3 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase text-slate-400">Overall Score</p>
-                    <p className="mt-1 text-lg font-bold text-slate-900">{aiAssessmentReport.overall.score}%</p>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Overall Score</p>
+                    <p className="text-2xl font-black text-slate-900">{aiAssessmentReport.overall.score}%</p>
                   </div>
-                  <div className="rounded-xl bg-white p-3 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase text-slate-400">Document accuracy</p>
-                    <p className="mt-1 text-lg font-bold text-slate-900">{aiAssessmentReport.documents?.confidence ?? "---"}%</p>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Document accuracy</p>
+                    <p className="text-2xl font-black text-slate-900">{aiAssessmentReport.documents?.confidence ?? "—"}%</p>
                   </div>
-                  <div className="rounded-xl bg-white p-3 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase text-slate-400">ID-Face Match</p>
-                    <p className="mt-1 text-lg font-bold text-slate-900">{aiAssessmentReport.identity?.matchScore ?? "---"}%</p>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">ID-Face Match</p>
+                    <p className="text-2xl font-black text-slate-900">{aiAssessmentReport.identity?.matchScore ?? "—"}%</p>
                   </div>
                 </div>
               ) : (
@@ -1998,7 +1998,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               )}
               
               {aiAssessmentReport?.disclaimer && (
-                <p className="mt-4 text-[10px] italic leading-relaxed text-slate-400">{aiAssessmentReport.disclaimer}</p>
+                <p className="mt-4 text-[10px] font-bold italic leading-relaxed text-slate-500 uppercase tracking-tight">{aiAssessmentReport.disclaimer}</p>
               )}
             </div>
 
@@ -2017,7 +2017,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           <CertificateCard cert={cert} verifyUrl={verifyUrl || `/verify/${cert.id}`} />
         )}
 
-        <section className="rounded-[32px] border border-white/40 bg-white/60 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        <section className="rounded-[32px] border border-white/40 bg-white/80 p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <h2 className="text-xl font-bold tracking-tight text-slate-900">Final Gate · Payment</h2>
           <p className="mt-1 text-sm text-slate-500">
             Secure $100 hold captured on approval or fully refunded on rejection.
@@ -2094,9 +2094,15 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   </div>
                   <div>
                     <p className="text-sm font-bold text-slate-800">Verify Payment Hold</p>
-                    <p className="text-[11px] font-medium text-slate-400">Place $100 hold for verification</p>
+                    <p className="text-[11px] font-bold text-slate-600">Place $100 hold for verification</p>
                   </div>
                 </label>
+                
+                {showPaymentHint && (
+                  <p className="mt-3 text-[10px] font-bold italic text-slate-500 px-1 uppercase tracking-tight">
+                    Note: Enter any valid digits for mock card details.
+                  </p>
+                )}
                 
                 {!paymentUnlocked && (
                   <p className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-amber-600">
@@ -2104,7 +2110,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
                   </p>
                 )}
                 {!mockCardValid && paymentUnlocked && (
-                  <p className="text-[10px] font-medium italic text-slate-400 px-1">Enter any valid digits for mock card details.</p>
+                  <p className="text-[10px] font-bold italic text-slate-500 px-1 uppercase tracking-tight">Enter any valid digits for mock card details.</p>
                 )}
               </div>
             )}
@@ -2136,7 +2142,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               disabled={anchoring || Boolean(cert)}
               className={`mt-4 w-full rounded-2xl py-4 text-sm font-black uppercase tracking-widest text-white transition-all shadow-lg ${
                 anchoring || Boolean(cert) || !readinessForIssue
-                  ? "bg-slate-200 text-slate-400 shadow-none"
+                  ? "bg-slate-100 text-slate-300 shadow-none cursor-not-allowed"
                   : "bg-gradient-to-r from-emerald-500 to-teal-500 shadow-emerald-200 hover:-translate-y-0.5 hover:shadow-emerald-300 active:translate-y-0"
               }`}
             >

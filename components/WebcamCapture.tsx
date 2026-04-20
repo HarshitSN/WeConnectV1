@@ -85,25 +85,45 @@ export function WebcamCapture({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/40 aspect-video">
-        <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
-        {scanning && (
+    <div className="space-y-4">
+      <div className={`relative overflow-hidden rounded-[32px] border-2 transition-all ${active ? "border-cyan-400 shadow-lg shadow-cyan-100" : "border-slate-100 bg-slate-50"} aspect-video flex items-center justify-center`}>
+        {!active && !error && (
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <svg className="h-12 w-12 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <p className="text-xs font-bold uppercase tracking-widest">Camera Inactive</p>
+          </div>
+        )}
+        <video ref={videoRef} className={`h-full w-full object-cover ${active ? "opacity-100" : "opacity-0"}`} playsInline muted />
+        {scanning && active && (
           <div className="pointer-events-none absolute inset-0">
-            <div className="absolute inset-x-0 h-0.5 animate-scan bg-cyan-400/80 shadow-[0_0_20px_rgba(34,211,238,0.8)]" />
-            <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/5 to-transparent" />
+            <div className="absolute inset-x-0 h-1 animate-scan bg-cyan-400 shadow-[0_0_25px_rgba(34,211,238,1)]" />
+            <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/10 via-transparent to-transparent" />
+          </div>
+        )}
+        {recording && (
+          <div className="absolute left-6 top-6 flex items-center gap-2 rounded-full bg-rose-600 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white shadow-lg animate-pulse">
+            <span className="h-2 w-2 rounded-full bg-white"></span>
+            REC
           </div>
         )}
       </div>
-      {error && <p className="text-sm text-rose-400">{error}</p>}
-      <div className="flex flex-wrap gap-2">
+      
+      {error && (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-100 bg-rose-50 px-4 py-2 text-xs font-bold text-rose-600">
+          <span>✖</span> {error}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-3">
         {!active ? (
           <button
             type="button"
             onClick={start}
-            className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15"
+            className="flex items-center gap-2 rounded-2xl bg-slate-900 px-6 py-3.5 text-sm font-black uppercase tracking-widest text-white transition-all hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0"
           >
-            Open camera
+            Open Camera
           </button>
         ) : (
           <>
@@ -111,14 +131,18 @@ export function WebcamCapture({
               type="button"
               onClick={capture}
               disabled={recording}
-              className="rounded-lg bg-cyan-500/90 px-4 py-2 text-sm font-medium text-black hover:bg-cyan-400"
+              className={`flex items-center gap-2 rounded-2xl px-6 py-3.5 text-sm font-black uppercase tracking-widest transition-all shadow-md ${
+                recording 
+                  ? "bg-slate-100 text-slate-400" 
+                  : "bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-cyan-100 hover:-translate-y-0.5 hover:shadow-cyan-200"
+              }`}
             >
               {recording ? "Recording…" : label}
             </button>
             <button
               type="button"
               onClick={stop}
-              className="rounded-lg border border-white/15 px-4 py-2 text-sm hover:bg-white/5"
+              className="rounded-2xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-black uppercase tracking-widest text-slate-600 transition-all hover:bg-slate-50 hover:text-slate-900"
             >
               Stop
             </button>
