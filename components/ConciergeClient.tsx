@@ -383,6 +383,41 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     const r = await fetch(`/api/session?id=${sid}`);
     if (!r.ok) {
       if (r.status === 404) {
+        const restore = await fetch("/api/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: sid }),
+        });
+        if (restore.ok) {
+          const company =
+            match && match.id
+              ? {
+                  id: match.id,
+                  companyName: match.companyName,
+                  jurisdiction: match.jurisdiction,
+                  registrySnippet: match.registrySnippet,
+                  primaryOwner: match.primaryOwner,
+                  ownershipFemalePct: match.ownershipFemalePct ?? 0,
+                }
+              : undefined;
+          await fetch("/api/session/registration", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: sid,
+              registration,
+              paid,
+              company,
+            }),
+          });
+          await fetch("/api/session", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: sid, stage }),
+          });
+          setAssistant("Recovered your session after a server reset. Continuing verification.");
+          return;
+        }
         setPollingEnabled(false);
         setAssistant("Session expired or reset. Please refresh to start a new verification session.");
       }
@@ -433,18 +468,34 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       setTrustReport(j.workflow.trustReport ?? null);
       setQuestionnaireAnswers((prev) => ({ ...prev, ...(j.workflow?.questionnaireAnswers ?? {}) }));
     }
-  }, [stage, registration, paid, visionChecks.idPassed]);
+  }, [stage, registration, paid, visionChecks.idPassed, match]);
 
   const saveRegistration = useCallback(
     async (nextRegistration: RegistrationDraft, nextPaid: boolean) => {
       if (!sessionId) return;
+      const company =
+        match && match.id
+          ? {
+              id: match.id,
+              companyName: match.companyName,
+              jurisdiction: match.jurisdiction,
+              registrySnippet: match.registrySnippet,
+              primaryOwner: match.primaryOwner,
+              ownershipFemalePct: match.ownershipFemalePct ?? 0,
+            }
+          : undefined;
       await fetch("/api/session/registration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, registration: nextRegistration, paid: nextPaid }),
+        body: JSON.stringify({
+          sessionId,
+          registration: nextRegistration,
+          paid: nextPaid,
+          company,
+        }),
       });
     },
-    [sessionId],
+    [sessionId, match],
   );
 
   useEffect(() => {
@@ -1228,6 +1279,18 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       detail: "Click Issue certificate to anchor and finish.",
     };
   })();
+  const isFinalStep = currentFlowStep === flowSteps.length - 1;
+  const showPathStep = currentFlowStep === 0;
+  const showIntakeStep = currentFlowStep === 1;
+  const showConfirmStep = currentFlowStep === 2;
+  const showVerificationStep = isSelfPath
+    ? currentFlowStep === 3
+    : currentFlowStep >= 3 && currentFlowStep <= 5;
+  const showSelfComplianceStep = isSelfPath && currentFlowStep === 4;
+  const showSelfTrustStep = isSelfPath && currentFlowStep === 5;
+  const showPaymentStep = !isSelfPath && currentFlowStep === 6;
+  const showIssueStep = isSelfPath ? isFinalStep : currentFlowStep >= 7;
+  const showFinalGateStep = showPaymentStep || showIssueStep || anchoring || Boolean(cert);
   const buyerSelected = buyerRows.find((row) => row.supplier.id === buyerSelectedId) ?? null;
   const buyerStepStates = [
     buyerQuery.trim().length > 0,
@@ -1296,67 +1359,74 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             {fallbackReasonGuidance(quotaFallbackReason, quotaFallbackSubtype)}
           </p>
         )}
-        <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
-          <p className="text-base font-bold text-slate-900">Step 1: Choose certification path</p>
-          <p className="mt-1 text-xs text-slate-600">
-            Current:{" "}
-            {activeCertType === "digital"
-              ? "Digital Certification"
-              : activeCertType === "self"
-                ? "Self-Certified"
-                : "Not selected"}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void setCertificationType("self");
-              }}
-              className={`rounded-xl border px-4 py-2 text-xs font-semibold transition ${isSelfPath
-                ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm"
-                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-            >
-              Self-Certified
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void setCertificationType("digital");
-              }}
-              className={`rounded-xl border px-4 py-2 text-xs font-semibold transition ${isDigitalPath
-                ? "border-cyan-300 bg-cyan-50 text-cyan-700 shadow-sm"
-                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-            >
-              Digital Certification
-            </button>
-          </div>
-        </section>
-        <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
-          <h2 className="text-xl font-bold text-slate-900">Step 2: Proactive intake</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Enter a business name or URL. Try <strong className="text-slate-900">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
-          </p>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <input
-              className="flex-1 rounded-xl border border-slate-200 bg-white/85 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-cyan-300/80 focus:ring-2 focus:ring-cyan-200/40"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Business name or URL"
-            />
-            <button
-              type="button"
-              onClick={() => void runDiscover()}
-              disabled={!sessionId}
-              className="rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgb(8,112,184,0.35)] transition hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40"
-            >
-              Discover
-            </button>
-          </div>
-        </section>
+        {showPathStep && (
+          <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+            <p className="text-base font-bold text-slate-900">Step 1: Choose certification path</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Current:{" "}
+              {activeCertType === "digital"
+                ? "Digital Certification"
+                : activeCertType === "self"
+                  ? "Self-Certified"
+                  : "Not selected"}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void setCertificationType("self");
+                }}
+                className={`rounded-xl border px-4 py-2 text-xs font-semibold transition ${isSelfPath
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+              >
+                Self-Certified
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void setCertificationType("digital");
+                }}
+                className={`rounded-xl border px-4 py-2 text-xs font-semibold transition ${isDigitalPath
+                  ? "border-cyan-300 bg-cyan-50 text-cyan-700 shadow-sm"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+              >
+                Digital Certification
+              </button>
+            </div>
+          </section>
+        )}
+        {showIntakeStep && (
+          <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+            <h2 className="text-xl font-bold text-slate-900">Step 2: Proactive intake</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Enter a business name or URL. Try <strong className="text-slate-900">Global Tech Solutions</strong>, Nile Logistics, or Red Sand Trading.
+            </p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <input
+                className="flex-1 rounded-xl border border-slate-200 bg-white/85 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-cyan-300/80 focus:ring-2 focus:ring-cyan-200/40"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Business name or URL"
+              />
+              <button
+                type="button"
+                onClick={() => void runDiscover()}
+                disabled={!sessionId}
+                className="rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgb(8,112,184,0.35)] transition hover:from-cyan-500 hover:to-blue-500 disabled:opacity-40"
+              >
+                Discover
+              </button>
+            </div>
+          </section>
+        )}
         <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/60 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <h2 className="text-xl font-bold tracking-tight text-slate-800">Guided Flow</h2>
+          <p className="mt-2 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-cyan-700">
+            Active step: {currentFlowStep + 1} / {flowSteps.length}
+          </p>
           <p className="mt-3 text-sm font-semibold text-cyan-900">{nextAction.title}</p>
           <p className="mt-1 text-xs font-medium text-slate-600">{nextAction.detail}</p>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -1385,10 +1455,13 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           )}
         </section>
 
-        <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        {(showSelfComplianceStep || showSelfTrustStep) && (
+          <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
             <div>
-              <h2 className="text-xl font-bold tracking-tight text-slate-800">Advanced Workspace</h2>
+              <h2 className="text-xl font-bold tracking-tight text-slate-800">
+                {showSelfComplianceStep ? "Step 5: Compliance checks" : "Step 6: Trust report"}
+              </h2>
               <p className="mt-1 text-xs font-medium text-slate-500">
                 {workflow
                   ? `${trustLevelLabel(workflow.trustLevel)} · Stage: ${workflow.certificationStage}`
@@ -1565,9 +1638,11 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               ) : null}
             </>
           )}
-        </section>
+          </section>
+        )}
 
-        <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
+        {showConfirmStep && (
+          <section className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white/85 p-4 sm:p-6 shadow-[0_14px_36px_rgb(15,23,42,0.1)] backdrop-blur-xl">
           {false && (
             <>
               <h2 className="text-lg font-semibold text-white">Intake details and prefill review</h2>
@@ -1875,11 +1950,21 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               ) : null}
             </div>
           )}
-        </section>
+          </section>
+        )}
 
-        <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        {showVerificationStep && (
+          <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">Voice · Vision</h2>
+            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">
+              {isSelfPath
+                ? "Step 4: Document upload"
+                : currentFlowStep === 3
+                  ? "Step 4: Voice verification"
+                  : currentFlowStep === 4
+                    ? "Step 5: Document upload"
+                    : "Step 6: Vision ID check"}
+            </h2>
             <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
               <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-500" />
               Stage: {stage}
@@ -2002,9 +2087,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               />
             </div>
           )}
-        </section>
+          </section>
+        )}
 
-        {isDigitalPath && (
+        {isDigitalPath && (currentFlowStep >= 5 || anchoring || Boolean(cert)) && (
           <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
             <h2 className="text-xl font-bold tracking-tight text-slate-900">AI Assessment Report</h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -2053,7 +2139,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           </section>
         )}
 
-        {cert && (
+        {cert && showIssueStep && (
           <div className="space-y-3">
             <CertificateCard cert={cert} verifyUrl={verifyUrl || `/verify/${cert.id}`} />
             <button
@@ -2067,7 +2153,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           </div>
         )}
 
-        <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
+        {showFinalGateStep && (
+          <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">
           <h2 className="text-xl font-bold tracking-tight text-slate-900">Final Gate · Payment</h2>
           <p className="mt-1 text-sm text-slate-500">
             Secure $100 hold captured on approval or fully refunded on rejection.
@@ -2199,7 +2286,8 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
               {anchoring ? "ISSUING CERTIFICATE..." : cert ? "CERTIFICATE ISSUED" : "ISSUE CERTIFICATE"}
             </button>
           </div>
-        </section>
+          </section>
+        )}
       </main>
 
     </div>

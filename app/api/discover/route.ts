@@ -122,7 +122,7 @@ export async function POST(req: Request) {
     );
     const enrichment = mapCompanyToPrefill(dynamic, "web", best, codeClassification, ownership);
     const countryRequiresConfirmation = enrichment.countryResolution.source !== "explicit";
-    setSessionCompany(sessionId, dynamic.id);
+    setSessionCompany(sessionId, dynamic.id, dynamic);
     setSessionCandidate(sessionId, {
       title: selectedCandidate.title,
       url: selectedCandidate.url,
@@ -253,7 +253,7 @@ export async function POST(req: Request) {
   };
   const enrichment = mapCompanyToPrefill(company, "registry", best, codeClassification, ownership);
 
-  setSessionCompany(sessionId, company.id);
+  setSessionCompany(sessionId, company.id, company);
   setSessionCandidate(sessionId, {
     title: company.companyName,
     url: company.websiteUrl,

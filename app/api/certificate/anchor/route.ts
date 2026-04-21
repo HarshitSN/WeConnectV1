@@ -14,6 +14,7 @@ import { generateTrustReport } from "@/lib/domains/trust-report";
 import { upsertCertifiedSupplierFromSession } from "@/lib/store/buyer-catalog";
 import {
   appendTerminal,
+  ensureSession,
   getSession,
   issueCertificate,
   setSessionAnchorError,
@@ -54,17 +55,16 @@ export async function POST(req: Request) {
   if (!sessionId) {
     return NextResponse.json({ error: "sessionId required" }, { status: 400 });
   }
-  const session = getSession(sessionId);
-  if (!session) {
-    return NextResponse.json({ error: "session not found" }, { status: 404 });
-  }
+  ensureSession(sessionId);
   // Keep server session stage aligned with explicit "Issue certificate" CTA flow.
   setSessionStage(sessionId, "anchoring");
   const anchoringSession = getSession(sessionId);
   if (!anchoringSession) {
-    return NextResponse.json({ error: "session not found after stage update" }, { status: 404 });
+    return NextResponse.json({ error: "session unavailable after restore" }, { status: 400 });
   }
-  const company = anchoringSession.companyId ? getCompanyById(anchoringSession.companyId) : null;
+  const company = anchoringSession.companyId
+    ? (getCompanyById(anchoringSession.companyId) ?? anchoringSession.companySnapshot ?? null)
+    : (anchoringSession.companySnapshot ?? null);
   if (!company) {
     return NextResponse.json({ error: "no company on session" }, { status: 400 });
   }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession, setSessionPaid, setSessionRegistration } from "@/lib/session-store";
+import { ensureSession, getSession, setSessionCompany, setSessionPaid, setSessionRegistration } from "@/lib/session-store";
 import { normalizeRegistrationDraft, validateRegistration } from "@/lib/registration";
 import { patchDomainState, pushGovernanceNotification } from "@/lib/store/domain-store";
 import { trustLevelFromCertification } from "@/lib/domains/contracts";
@@ -14,15 +14,20 @@ export async function POST(req: Request) {
     sessionId?: string;
     registration?: unknown;
     paid?: boolean;
+    company?: {
+      id?: string;
+      companyName?: string;
+      jurisdiction?: string;
+      registrySnippet?: string;
+      primaryOwner?: string;
+      ownershipFemalePct?: number | null;
+    };
   };
   const sessionId = body.sessionId;
   if (!sessionId) {
     return NextResponse.json({ error: "sessionId required" }, { status: 400 });
   }
-  const session = getSession(sessionId);
-  if (!session) {
-    return NextResponse.json({ error: "session not found" }, { status: 404 });
-  }
+  ensureSession(sessionId);
 
   if (body.registration !== undefined && !isRecord(body.registration)) {
     return NextResponse.json(
@@ -79,6 +84,21 @@ export async function POST(req: Request) {
       sessionId,
       body.paid ? "$100 payment hold placed (approval pending)" : "Payment hold removed/reset",
     );
+  }
+  if (body.company?.id && body.company.companyName) {
+    setSessionCompany(sessionId, body.company.id, {
+      id: body.company.id,
+      companyName: body.company.companyName,
+      aliases: [],
+      websiteUrl: "",
+      jurisdiction: body.company.jurisdiction ?? "Unknown",
+      registrySnippet: body.company.registrySnippet ?? "",
+      primaryOwner: body.company.primaryOwner ?? "Unknown",
+      ownershipFemalePct:
+        typeof body.company.ownershipFemalePct === "number" ? body.company.ownershipFemalePct : 0,
+      directors: [],
+      riskFlags: [],
+    });
   }
 
   const updated = getSession(sessionId);

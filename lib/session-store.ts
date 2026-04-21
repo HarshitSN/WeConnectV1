@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { CertificateRecord, ChatMessage, SessionStage } from "./types";
+import type { CertificateRecord, ChatMessage, RegistryCompany, SessionStage } from "./types";
 import type { RegistrationDraft } from "./registration";
 
 export type AiAssessmentReport = {
@@ -34,6 +34,7 @@ export type SessionRecord = {
   id: string;
   stage: SessionStage;
   companyId: string | null;
+  companySnapshot?: RegistryCompany;
   terminalLines: string[];
   messages: ChatMessage[];
   certId: string | null;
@@ -146,8 +147,10 @@ function ensureAiAssessmentReport(session: SessionRecord): AiAssessmentReport {
   return created;
 }
 
-export function createSession(): SessionRecord {
-  const id = randomBytes(12).toString("hex");
+export function createSession(sessionId?: string): SessionRecord {
+  const id = sessionId ?? randomBytes(12).toString("hex");
+  const existing = sessions.get(id);
+  if (existing) return existing;
   const rec: SessionRecord = {
     id,
     stage: "idle",
@@ -160,6 +163,10 @@ export function createSession(): SessionRecord {
   };
   sessions.set(id, rec);
   return rec;
+}
+
+export function ensureSession(sessionId: string): SessionRecord {
+  return getSession(sessionId) ?? createSession(sessionId);
 }
 
 export function getSession(id: string): SessionRecord | undefined {
@@ -187,10 +194,15 @@ export function setSessionStage(sessionId: string, stage: SessionStage) {
   touchSession(s);
 }
 
-export function setSessionCompany(sessionId: string, companyId: string) {
+export function setSessionCompany(
+  sessionId: string,
+  companyId: string,
+  companySnapshot?: RegistryCompany,
+) {
   const s = sessions.get(sessionId);
   if (!s) return;
   s.companyId = companyId;
+  if (companySnapshot) s.companySnapshot = companySnapshot;
   touchSession(s);
 }
 

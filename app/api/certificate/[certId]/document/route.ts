@@ -96,7 +96,7 @@ export async function GET(
     page.drawRectangle({ x: 20, y: 748, width: 555, height: 74, color: black });
     page.drawRectangle({ x: 20, y: 734, width: 555, height: 14, color: yellow });
 
-    page.drawText("WEConnect Certificate", {
+    page.drawText("WEConnect Provisional Certificate", {
       x: left,
       y,
       size: 28,

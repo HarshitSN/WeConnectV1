@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSession, getSession } from "@/lib/session-store";
+import { createSession, ensureSession } from "@/lib/session-store";
 import { getDomainState } from "@/lib/store/domain-store";
 
-export async function POST() {
-  const s = createSession();
+export async function POST(req: Request) {
+  const body = (await req.json().catch(() => ({}))) as { sessionId?: string };
+  const s = body.sessionId ? createSession(body.sessionId) : createSession();
   getDomainState(s.id);
   return NextResponse.json({
     sessionId: s.id,
@@ -18,10 +19,7 @@ export async function GET(req: Request) {
   if (!id) {
     return NextResponse.json({ error: "missing id" }, { status: 400 });
   }
-  const s = getSession(id);
-  if (!s) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
+  const s = ensureSession(id);
   const workflow = getDomainState(id);
   return NextResponse.json({
     sessionId: s.id,
@@ -50,10 +48,7 @@ export async function PATCH(req: Request) {
   if (!id) {
     return NextResponse.json({ error: "missing id" }, { status: 400 });
   }
-  const s = getSession(id);
-  if (!s) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
+  const s = ensureSession(id);
   
   if (body.stage) {
     s.stage = body.stage;
