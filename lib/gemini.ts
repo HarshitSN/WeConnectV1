@@ -481,7 +481,7 @@ function mockAgentTurn(
 
   return {
     assistantText:
-      "Please continue following the on-screen prompts. Say yes when you are the named primary owner.",
+      "Please continue following the on-screen prompts.",
     nextStage: null,
     manualReviewSuggested: false,
     controlAndManagementScore: 70,

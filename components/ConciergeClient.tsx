@@ -49,6 +49,13 @@ function speak(text: string) {
       console.warn("[TTS] speechSynthesis unavailable");
       return;
     }
+    const normalized = text.trim().toLowerCase();
+    if (
+      normalized === "please continue following the on-screen prompts." ||
+      normalized === "please continue with the on-screen verification steps."
+    ) {
+      return;
+    }
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1;
@@ -1025,7 +1032,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
     if (j.stage === "voice_attestation") {
       setVisionNote("ID video verified. Ownership remains prefill-derived and not vision-verified.");
       const prompt =
-        "ID verification complete. Please describe your role in the daily operations of the business.";
+        "ID verification complete. Please proceed to the payment gate to continue.";
       setAssistant(prompt);
       speak(prompt);
     }
@@ -1066,7 +1073,17 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             setAssistant(message);
             speak(message);
           } else {
-            void callAgent(`I have uploaded the relevant documents. Report: ${data.result.report}`);
+            const message =
+              "Documents verified. Please proceed to ID video verification.";
+            setStage("vision_id");
+            setAssistant(message);
+            speak(message);
+            await fetch("/api/session", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sessionId, stage: "vision_id" }),
+            });
+            await refreshSession(sessionId);
           }
         } else {
           if (isSelfPath) {
@@ -1075,7 +1092,10 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             setAssistant(message);
             speak(message);
           } else {
-            void callAgent(`I uploaded documents but they could not be fully verified contextually. Please instruct me how to proceed. Report: ${data.result.report}`);
+            const message =
+              "Document verification could not be completed. Please re-upload clearer documents.";
+            setAssistant(message);
+            speak(message);
           }
         }
       } else {
@@ -1250,15 +1270,9 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
           : "Open camera and record a 2-second clip. Keep face and ID steady.",
       };
     }
-    if (stage === "voice_attestation") {
-      return {
-        title: "Step 7: Explain your role.",
-        detail: "Use Speak or Type box and describe your daily operational role.",
-      };
-    }
     if (isDigitalPath && !paid) {
       return {
-        title: "Step 8: Complete payment gate.",
+        title: "Step 7: Complete payment gate.",
         detail: "Enter mock card details and mark payment as verified.",
       };
     }
@@ -2002,27 +2016,29 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             )}
           </div>
 
-          <div className="mt-5 sm:mt-6 flex flex-col sm:flex-row gap-3">
-            <VoiceConcierge
-              onTranscript={(t) => void onVoice(t)}
-              disabled={!sessionId || !match || stage === "complete"}
-            />
-            <div className="flex-1">
-              <input
-                className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-medium text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-400/5 placeholder:text-slate-400"
-                placeholder="Type instead of speaking..."
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const val = (e.target as HTMLInputElement).value;
-                    if (val.trim()) {
-                      void onVoice(val);
-                      (e.target as HTMLInputElement).value = "";
-                    }
-                  }
-                }}
+          {stage !== "doc_upload" && (
+            <div className="mt-5 sm:mt-6 flex flex-col sm:flex-row gap-3">
+              <VoiceConcierge
+                onTranscript={(t) => void onVoice(t)}
+                disabled={!sessionId || !match || stage === "complete"}
               />
+              <div className="flex-1">
+                <input
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-medium text-slate-800 shadow-sm transition-all focus:border-cyan-400 focus:outline-none focus:ring-4 focus:ring-cyan-400/5 placeholder:text-slate-400"
+                  placeholder="Type instead of speaking..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const val = (e.target as HTMLInputElement).value;
+                      if (val.trim()) {
+                        void onVoice(val);
+                        (e.target as HTMLInputElement).value = "";
+                      }
+                    }
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          )}
           
           {stage === "doc_upload" && (
             <div className="mt-8 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-cyan-200 bg-cyan-50/30 p-8 text-center transition-colors hover:bg-cyan-50/50">
