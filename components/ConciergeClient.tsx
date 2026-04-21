@@ -43,6 +43,27 @@ type OwnershipBreakdown = {
   symbol?: string;
 };
 
+let ttsUnlocked = false;
+let pendingSpeechText: string | null = null;
+
+function unlockTtsFromGesture() {
+  try {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    ttsUnlocked = true;
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.resume();
+    if (pendingSpeechText) {
+      const queued = pendingSpeechText;
+      pendingSpeechText = null;
+      window.setTimeout(() => {
+        speak(queued);
+      }, 40);
+    }
+  } catch (error) {
+    console.warn("[TTS] unlock failed", error);
+  }
+}
+
 function speak(text: string) {
   try {
     if (typeof window === "undefined" || !window.speechSynthesis) {
@@ -56,10 +77,17 @@ function speak(text: string) {
     ) {
       return;
     }
+    if (!ttsUnlocked) {
+      pendingSpeechText = text;
+      return;
+    }
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1;
-    window.speechSynthesis.speak(u);
+    window.setTimeout(() => {
+      window.speechSynthesis.speak(u);
+    }, 10);
   } catch (error) {
     console.warn("[TTS] failed to speak", error);
   }
@@ -385,6 +413,20 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const lastAutosavedSessionIdRef = useRef<string | null>(null);
   const lastAutosavedPayloadRef = useRef<string>("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const unlock = () => unlockTtsFromGesture();
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("touchstart", unlock, { passive: true });
+    window.addEventListener("keydown", unlock);
+    unlockTtsFromGesture();
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("touchstart", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   const refreshSession = useCallback(async (sid: string) => {
     const r = await fetch(`/api/session?id=${sid}`);
