@@ -45,6 +45,44 @@ type OwnershipBreakdown = {
 
 let ttsUnlocked = false;
 let pendingSpeechText: string | null = null;
+const speechQueue: string[] = [];
+let speechActive = false;
+
+function selectVoice(): SpeechSynthesisVoice | null {
+  if (typeof window === "undefined" || !window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  return (
+    voices.find((v) => /en-US|en_US/i.test(v.lang)) ??
+    voices.find((v) => /^en/i.test(v.lang)) ??
+    voices[0] ??
+    null
+  );
+}
+
+function flushSpeechQueue() {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  if (!ttsUnlocked || speechActive) return;
+  const nextText = speechQueue.shift();
+  if (!nextText) return;
+  const utterance = new SpeechSynthesisUtterance(nextText);
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  utterance.lang = "en-US";
+  const voice = selectVoice();
+  if (voice) utterance.voice = voice;
+  speechActive = true;
+  utterance.onend = () => {
+    speechActive = false;
+    flushSpeechQueue();
+  };
+  utterance.onerror = () => {
+    speechActive = false;
+    flushSpeechQueue();
+  };
+  window.speechSynthesis.resume();
+  window.speechSynthesis.speak(utterance);
+}
 
 function unlockTtsFromGesture() {
   try {
@@ -52,13 +90,16 @@ function unlockTtsFromGesture() {
     ttsUnlocked = true;
     window.speechSynthesis.getVoices();
     window.speechSynthesis.resume();
+    // iOS/Safari often needs a priming utterance after a direct user gesture.
+    const primer = new SpeechSynthesisUtterance(" ");
+    primer.volume = 0;
+    window.speechSynthesis.speak(primer);
     if (pendingSpeechText) {
       const queued = pendingSpeechText;
       pendingSpeechText = null;
-      window.setTimeout(() => {
-        speak(queued);
-      }, 40);
+      speechQueue.push(queued);
     }
+    window.setTimeout(() => flushSpeechQueue(), 30);
   } catch (error) {
     console.warn("[TTS] unlock failed", error);
   }
@@ -81,13 +122,8 @@ function speak(text: string) {
       pendingSpeechText = text;
       return;
     }
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.resume();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1;
-    window.setTimeout(() => {
-      window.speechSynthesis.speak(u);
-    }, 10);
+    speechQueue.push(text);
+    flushSpeechQueue();
   } catch (error) {
     console.warn("[TTS] failed to speak", error);
   }
@@ -416,15 +452,20 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const onVoicesChanged = () => {
+      if (ttsUnlocked) flushSpeechQueue();
+    };
     const unlock = () => unlockTtsFromGesture();
     window.addEventListener("pointerdown", unlock, { passive: true });
     window.addEventListener("touchstart", unlock, { passive: true });
     window.addEventListener("keydown", unlock);
+    window.speechSynthesis?.addEventListener?.("voiceschanged", onVoicesChanged);
     unlockTtsFromGesture();
     return () => {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("touchstart", unlock);
       window.removeEventListener("keydown", unlock);
+      window.speechSynthesis?.removeEventListener?.("voiceschanged", onVoicesChanged);
     };
   }, []);
 
