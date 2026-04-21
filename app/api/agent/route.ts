@@ -183,7 +183,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "session not found" }, { status: 404 });
     }
 
-    const company = session.companyId ? getCompanyById(session.companyId) : null;
+    const company = session.companyId
+      ? (getCompanyById(session.companyId) ?? session.companySnapshot ?? null)
+      : (session.companySnapshot ?? null);
     const workflow = getDomainState(sessionId);
     const isDigitalPath =
       workflow.certificationType === "digital" ||

@@ -74,7 +74,9 @@ export async function POST(req: Request) {
     if (!session) {
       return NextResponse.json({ error: "session not found" }, { status: 404 });
     }
-    const company = session.companyId ? getCompanyById(session.companyId) : null;
+    const company = session.companyId
+      ? (getCompanyById(session.companyId) ?? session.companySnapshot ?? null)
+      : (session.companySnapshot ?? null);
     if (!company) {
       return NextResponse.json({ error: "discover a company first" }, { status: 400 });
     }
