@@ -132,6 +132,12 @@ type AnchorJson = {
   operatorHint?: string;
   anchorMode?: "real" | "demo";
   anchorFallbackReason?: string;
+  diagnostics?: {
+    attemptId?: string;
+    stage?: string;
+    rpcHost?: string;
+    elapsedMs?: number;
+  };
 };
 
 type DiscoverJson = {
@@ -353,6 +359,7 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
   const [workflow, setWorkflow] = useState<WorkflowState | null>(null);
   const [aiAssessmentReport, setAiAssessmentReport] = useState<AiAssessmentReport | null>(null);
   const [downloadingAiReport, setDownloadingAiReport] = useState(false);
+  const [downloadingCertificate, setDownloadingCertificate] = useState(false);
   const [compliance, setCompliance] = useState<ComplianceResult | null>(null);
   const [trustReport, setTrustReport] = useState<TrustReport | null>(null);
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, string>>({
@@ -830,7 +837,12 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
             ? `${data.error ?? "Anchoring failed"} (${data.reasonCode})`
             : (data?.error ?? parsed.errorMessage ?? "Anchoring failed."),
         );
-        setAnchorOperatorHint(data?.operatorHint ?? (data?.reasonDetail ? `Details: ${data.reasonDetail}` : ""));
+        const diagnosticsHint =
+          data?.diagnostics?.attemptId
+            ? `Attempt: ${data.diagnostics.attemptId}${data.diagnostics.stage ? ` · Stage: ${data.diagnostics.stage}` : ""}`
+            : "";
+        const baseHint = data?.operatorHint ?? (data?.reasonDetail ? `Details: ${data.reasonDetail}` : "");
+        setAnchorOperatorHint([baseHint, diagnosticsHint].filter(Boolean).join(" · "));
         return;
       }
       const j = parsed.data;
@@ -880,6 +892,34 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
       setDownloadingAiReport(false);
     }
   }, [sessionId]);
+
+  const downloadCertificatePdf = useCallback(async () => {
+    if (!cert) return;
+    setDownloadingCertificate(true);
+    try {
+      const response = await fetch(`/api/certificate/${encodeURIComponent(cert.id)}/document`);
+      if (!response.ok) {
+        const parsed = await parseJsonSafe<{ error?: string }>(response);
+        setAssistant(parsed.errorMessage ?? "Certificate is not ready yet.");
+        return;
+      }
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = contentDisposition.match(/filename=\"([^\"]+)\"/i);
+      const filename = filenameMatch?.[1] ?? `weconnect-certificate-${cert.id.slice(0, 8)}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setAssistant("Official certificate downloaded.");
+    } catch {
+      setAssistant("Could not download certificate PDF. Please retry.");
+    } finally {
+      setDownloadingCertificate(false);
+    }
+  }, [cert]);
 
   const sendVision = async (dataUrl: string) => {
     if (!sessionId) return;
@@ -2014,7 +2054,17 @@ export function ConciergeClient({ embed }: { embed?: boolean }) {
         )}
 
         {cert && (
-          <CertificateCard cert={cert} verifyUrl={verifyUrl || `/verify/${cert.id}`} />
+          <div className="space-y-3">
+            <CertificateCard cert={cert} verifyUrl={verifyUrl || `/verify/${cert.id}`} />
+            <button
+              type="button"
+              onClick={() => void downloadCertificatePdf()}
+              disabled={downloadingCertificate}
+              className="w-full rounded-2xl border border-[#fac400] bg-[#fac400] py-3 text-sm font-black uppercase tracking-wider text-black transition-all hover:brightness-95 disabled:opacity-40"
+            >
+              {downloadingCertificate ? "PREPARING CERTIFICATE..." : "DOWNLOAD OFFICIAL CERTIFICATE PDF"}
+            </button>
+          </div>
         )}
 
         <section className="rounded-2xl sm:rounded-[32px] border border-white/40 bg-white/80 p-4 sm:p-6 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] backdrop-blur-xl">

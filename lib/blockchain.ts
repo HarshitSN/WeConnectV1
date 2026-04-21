@@ -22,6 +22,7 @@ export type AnchorSubmissionResult = {
   anchorKind: "contract_call" | "tx_data";
   contractAddress?: string;
   digest: `0x${string}`;
+  diagnostics?: AnchorDiagnostics;
 };
 
 export type ChainFailureCode =
@@ -37,12 +38,14 @@ export type ChainFailureCode =
 export class AnchorSubmissionError extends Error {
   code: ChainFailureCode;
   detail: string;
+  diagnostics?: AnchorDiagnostics;
 
-  constructor(code: ChainFailureCode, detail: string) {
+  constructor(code: ChainFailureCode, detail: string, diagnostics?: AnchorDiagnostics) {
     super(`anchor_${code}:${detail}`);
     this.name = "AnchorSubmissionError";
     this.code = code;
     this.detail = detail;
+    this.diagnostics = diagnostics;
   }
 }
 
@@ -72,6 +75,23 @@ export type BlockchainHealth = {
   configError?: string;
 };
 
+export type AnchorDiagnostics = {
+  attemptId: string;
+  at: string;
+  mode: ChainMode;
+  chainId?: number;
+  rpcHost?: string;
+  contractAddress?: string;
+  accountAddress?: string;
+  anchorKind?: "contract_call" | "tx_data";
+  stage: string;
+  txHash?: string;
+  errorName?: string;
+  errorCode?: ChainFailureCode;
+  errorDetail?: string;
+  elapsedMs?: number;
+};
+
 const RECEIPT_RECHECK_ATTEMPTS = 3;
 const RECEIPT_RECHECK_DELAY_MS = 1200;
 
@@ -92,6 +112,22 @@ function fallback(reason: string): AnchorSubmissionResult {
     anchorKind: "tx_data",
     digest,
   };
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function makeAttemptId() {
+  return `anc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function rpcHostOnly(rpcUrl: string): string | undefined {
+  try {
+    return new URL(rpcUrl).host;
+  } catch {
+    return undefined;
+  }
 }
 
 function sanitizeReason(error: unknown): string {
@@ -278,20 +314,43 @@ function buildAnchorDigest(payload: AnchorPayload): `0x${string}` {
 }
 
 export async function submitAnchorTx(payload: AnchorPayload): Promise<AnchorSubmissionResult> {
+  const startedAt = Date.now();
+  const attemptId = makeAttemptId();
   let config: ChainConfig;
   try {
     config = getChainConfig();
   } catch (error) {
     const detail = sanitizeReason(error);
+    const diagnostics: AnchorDiagnostics = {
+      attemptId,
+      at: nowIso(),
+      mode: String(process.env.CHAIN_MODE ?? "auto").toLowerCase() as ChainMode,
+      stage: "config_validation_failed",
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorCode: "config_invalid",
+      errorDetail: detail,
+      elapsedMs: Date.now() - startedAt,
+    };
     if (String(process.env.CHAIN_MODE ?? "auto").toLowerCase() === "real") {
-      throw new AnchorSubmissionError("config_invalid", detail);
+      throw new AnchorSubmissionError("config_invalid", detail, diagnostics);
     }
-    return fallback(`config_error:${detail}`);
+    return { ...fallback(`config_error:${detail}`), diagnostics };
   }
   if (config.mode === "demo") {
-    return fallback("chain_mode_demo");
+    return {
+      ...fallback("chain_mode_demo"),
+      diagnostics: {
+        attemptId,
+        at: nowIso(),
+        mode: config.mode,
+        chainId: config.chainId,
+        stage: "demo_mode_fallback",
+        elapsedMs: Date.now() - startedAt,
+      },
+    };
   }
 
+  let anchorKind: "contract_call" | "tx_data" = config.contractAddress ? "contract_call" : "tx_data";
   try {
     const account = privateKeyToAccount(config.privateKey);
     if (!isAddress(account.address)) {
@@ -310,6 +369,7 @@ export async function submitAnchorTx(payload: AnchorPayload): Promise<AnchorSubm
     });
     const digest = buildAnchorDigest(payload);
     if (config.contractAddress) {
+      anchorKind = "contract_call";
       const contractAbi = parseAbi([
         "function anchorVerification(bytes32 digest, string sessionId, string companyName, string certType, string issuedAtIso)",
       ]);
@@ -336,8 +396,22 @@ export async function submitAnchorTx(payload: AnchorPayload): Promise<AnchorSubm
         anchorKind: "contract_call",
         contractAddress: config.contractAddress,
         digest,
+        diagnostics: {
+          attemptId,
+          at: nowIso(),
+          mode: config.mode,
+          chainId: config.chainId,
+          rpcHost: rpcHostOnly(config.rpcUrl),
+          contractAddress: config.contractAddress,
+          accountAddress: account.address,
+          anchorKind: "contract_call",
+          stage: "confirmed",
+          txHash,
+          elapsedMs: Date.now() - startedAt,
+        },
       };
     }
+    anchorKind = "tx_data";
     const txHash = await wallet.sendTransaction({
       account,
       chain,
@@ -359,13 +433,39 @@ export async function submitAnchorTx(payload: AnchorPayload): Promise<AnchorSubm
       mode: "real",
       anchorKind: "tx_data",
       digest,
+      diagnostics: {
+        attemptId,
+        at: nowIso(),
+        mode: config.mode,
+        chainId: config.chainId,
+        rpcHost: rpcHostOnly(config.rpcUrl),
+        accountAddress: account.address,
+        anchorKind: "tx_data",
+        stage: "confirmed",
+        txHash,
+        elapsedMs: Date.now() - startedAt,
+      },
     };
   } catch (error) {
+    const detail = sanitizeReason(error);
+    const code = classifyChainFailure(error);
+    const diagnostics: AnchorDiagnostics = {
+      attemptId,
+      at: nowIso(),
+      mode: config.mode,
+      chainId: config.chainId,
+      rpcHost: rpcHostOnly(config.rpcUrl),
+      contractAddress: config.contractAddress,
+      anchorKind,
+      stage: "failed",
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorCode: code,
+      errorDetail: detail,
+      elapsedMs: Date.now() - startedAt,
+    };
     if (config.mode === "real") {
-      const detail = sanitizeReason(error);
-      const code = classifyChainFailure(error);
-      throw new AnchorSubmissionError(code, detail);
+      throw new AnchorSubmissionError(code, detail, diagnostics);
     }
-    return fallback(`auto_fallback:${sanitizeReason(error)}`);
+    return { ...fallback(`auto_fallback:${detail}`), diagnostics };
   }
 }

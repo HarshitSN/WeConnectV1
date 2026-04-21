@@ -38,7 +38,7 @@ export function CertificateCard({ cert, verifyUrl }: Props) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[10px] uppercase tracking-[0.2em] text-cyan-500/90">
-            WEC · Live soulbound certificate (demo)
+            WEC · Live soulbound certificate
           </p>
           <h3 className="mt-1 text-xl font-semibold text-white">{cert.companyName}</h3>
           <p className="mt-2 text-sm text-zinc-400">

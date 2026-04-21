@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   AnchorSubmissionError,
+  getBlockchainHealth,
   type AnchorSubmissionResult,
   type ChainFailureCode,
 } from "@/lib/blockchain";
@@ -76,6 +77,11 @@ export async function POST(req: Request) {
   }
 
   appendTerminal(sessionId, "[QID_CHAIN] anchoring_soulbound_token start");
+  const chainHealth = getBlockchainHealth();
+  appendTerminal(
+    sessionId,
+    `[QID_CHAIN] config mode=${chainHealth.mode} chainId=${chainHealth.chainId} rpc_configured=${chainHealth.rpcConfigured} private_key_valid=${chainHealth.privateKeyValid} contract_configured=${chainHealth.contractConfigured}`,
+  );
   const issuedAt = new Date().toISOString();
   const workflow = getDomainState(sessionId);
   let anchorResult: AnchorSubmissionResult;
@@ -96,14 +102,28 @@ export async function POST(req: Request) {
           ? error.message
           : "chain submission failed";
     const operatorHint = anchorHint(reasonCode);
+    const diagnostics = error instanceof AnchorSubmissionError ? error.diagnostics : undefined;
     appendTerminal(sessionId, `[QID_CHAIN] mode=real`);
     appendTerminal(sessionId, `[QID_CHAIN] error_code=${reasonCode}`);
     appendTerminal(sessionId, `[QID_CHAIN] error_detail=${reasonDetail}`);
+    if (diagnostics) {
+      appendTerminal(
+        sessionId,
+        `[QID_CHAIN] diagnostics attempt=${diagnostics.attemptId} stage=${diagnostics.stage} elapsed_ms=${diagnostics.elapsedMs ?? "n/a"} rpc_host=${diagnostics.rpcHost ?? "n/a"} kind=${diagnostics.anchorKind ?? "n/a"}`,
+      );
+    }
     const errorTxHash = extractTxHashFromDetail(reasonDetail);
     if (errorTxHash) {
       appendTerminal(sessionId, `[QID_CHAIN] error_tx_hash=${errorTxHash}`);
     }
     appendTerminal(sessionId, `[QID_CHAIN] operator_hint=${operatorHint}`);
+    console.error("[QID_CHAIN] anchor_failed", {
+      sessionId,
+      reasonCode,
+      reasonDetail,
+      diagnostics,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     setSessionAnchorError(sessionId, {
       at: new Date().toISOString(),
       reasonCode,
@@ -117,6 +137,7 @@ export async function POST(req: Request) {
         reasonCode,
         reasonDetail,
         operatorHint,
+        diagnostics,
       },
       { status: 502 },
     );
@@ -125,6 +146,12 @@ export async function POST(req: Request) {
   appendTerminal(sessionId, `[QID_CHAIN] anchor_kind=${anchorResult.anchorKind}`);
   appendTerminal(sessionId, `[QID_CHAIN] tx_submitted hash=${anchorResult.txHash.slice(0, 10)}…`);
   appendTerminal(sessionId, `[QID_CHAIN] digest=${anchorResult.digest.slice(0, 14)}…`);
+  if (anchorResult.diagnostics) {
+    appendTerminal(
+      sessionId,
+      `[QID_CHAIN] diagnostics attempt=${anchorResult.diagnostics.attemptId} stage=${anchorResult.diagnostics.stage} elapsed_ms=${anchorResult.diagnostics.elapsedMs ?? "n/a"} rpc_host=${anchorResult.diagnostics.rpcHost ?? "n/a"}`,
+    );
+  }
   if (anchorResult.contractAddress) {
     appendTerminal(sessionId, `[QID_CHAIN] contract=${anchorResult.contractAddress}`);
   }
